@@ -7,7 +7,6 @@ import 'package:permission_handler/permission_handler.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialisation de Firebase avec vos identifiants officiels
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "AIzaSyCu0BK4h2hhaGV4C46C9y65rBJlnLftq3A",
@@ -38,7 +37,6 @@ class RezoPlusApp extends StatelessWidget {
   }
 }
 
-// Écran de configuration initiale de l'indicatif (ex: ALPHA-1)
 class UnitConfigScreen extends StatefulWidget {
   const UnitConfigScreen({super.key});
 
@@ -94,10 +92,9 @@ class _UnitConfigScreenState extends State<UnitConfigScreen> {
   }
 }
 
-// Écran principal de patrouille
 class PatrolScreen extends StatefulWidget {
   final String unitId;
-  const PatrolScreen({super.key, required: this.unitId});
+  const PatrolScreen({super.key, required this.unitId}); // Correction ici
 
   @override
   State<PatrolScreen> createState() => _PatrolScreenState();
@@ -129,7 +126,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
     _listenToIncomingMissions();
   }
 
-  // Permissions GPS et suivi en temps réel
   void _checkPermissionsAndStartGPS() async {
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -145,7 +141,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
     }
   }
 
-  // Envoi des données vers Firebase
   void _updateFirebaseData({double? lat, double? lng}) {
     Map<String, dynamic> data = {
       "status": _isSosActive ? "SOS_ACTIF" : _currentStatus,
@@ -159,7 +154,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
     _dbRef.child("units/${widget.unitId}").update(data);
   }
 
-  // Écoute des ordres de mission du PC
   void _listenToIncomingMissions() {
     _dbRef.child("units/${widget.unitId}/active_mission").onValue.listen((event) {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
@@ -209,7 +203,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Module d'alerte Mission en cours (reçu du PC)
             if (_activeMission != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
@@ -230,7 +223,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
                 ),
               ),
 
-            // Bouton SOS Urgence Critique
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: _isSosActive ? Colors.grey : Colors.red,
@@ -245,7 +237,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Statuts opérationnels
             const Text('Statut Opérationnel :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             const SizedBox(height: 8),
             Wrap(
@@ -260,7 +251,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
             ),
             const Divider(height: 30, color: Colors.grey),
 
-            // Check-list du matériel (10 points)
             const Text('Check-list Matériel Embarqué :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
             const SizedBox(height: 8),
             Card(
