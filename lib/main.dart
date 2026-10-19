@@ -94,7 +94,7 @@ class _UnitConfigScreenState extends State<UnitConfigScreen> {
 
 class PatrolScreen extends StatefulWidget {
   final String unitId;
-  const PatrolScreen({super.key, required this.unitId}); // Correction ici
+  const PatrolScreen({super.key, required this.unitId});
 
   @override
   State<PatrolScreen> createState() => _PatrolScreenState();
@@ -103,7 +103,7 @@ class PatrolScreen extends StatefulWidget {
 class _PatrolScreenState extends State<PatrolScreen> {
   String _currentStatus = "EN_PATROUILLE";
   bool _isSosActive = false;
-  Map<String, dynamic> _equipment = {
+  final Map<String, dynamic> _equipment = {
     "Arme de poing": false,
     "Gilet pare-balles": false,
     "Radio portative": false,
