@@ -6,45 +6,48 @@ on:
   workflow_dispatch:
 
 jobs:
-    build:
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
-  
-        - name: Set up Java
-          uses: actions/setup-java@v4
-          with:
-            distribution: 'temurin'
-            java-version: '17'
-  
-        - name: Set up Flutter
-          uses: subosito/flutter-action@v2
-          with:
-            channel: 'stable'
-  
-        - name: Create fresh Flutter project structure
-          run: |
-            # Sauvegarder nos fichiers de code source et de conf
-            mkdir -p temp_backup/lib temp_backup/android/app/src/main
-            cp lib/main.dart temp_backup/lib/ || true
-            cp pubspec.yaml temp_backup/ || true
-            
-            # Recréer un squelette Flutter propre et officiel
-            flutter create . --org com.rezoplus --project-name rezoplus_terrain --platforms=android
-            
-            # Restaurer notre code et nos dépendances personnalisées
-            cp temp_backup/lib/main.dart lib/main.dart
-            cp temp_backup/pubspec.yaml pubspec.yaml
-  
-        - name: Get dependencies
-          run: flutter pub get
-  
-        - name: Build APK
-          run: flutter build apk --release --no-tree-shake-icons
-  
-        - name: Upload APK
-          uses: actions/upload-artifact@v4
-          with:
-            name: app-release-apk
-            path: build/app/outputs/flutter-apk/app-release.apk
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Create fresh Flutter project structure (Safely)
+        run: |
+          # Sauvegarder uniquement notre code source main.dart et pubspec.yaml
+          mkdir -p temp_backup/lib
+          cp lib/main.dart temp_backup/lib/ || true
+          cp pubspec.yaml temp_backup/ || true
+          
+          # Nettoyer la racine pour laisser flutter create générer 100% des fichiers natifs propres
+          rm -rf lib android ios web linux macos windows pubspec.yaml
+          
+          # Recréer le projet complet et officiel
+          flutter create . --org com.rezoplus --project-name rezoplus_terrain --platforms=android
+          
+          # Restaurer notre code métier
+          cp temp_backup/lib/main.dart lib/main.dart
+          cp temp_backup/pubspec.yaml pubspec.yaml
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
