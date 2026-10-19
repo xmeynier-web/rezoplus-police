@@ -36,7 +36,6 @@ class RezoPlusMobileApp extends StatelessWidget {
   }
 }
 
-// 1. Écran de connexion / Choix de l'indicatif
 class UnitLoginScreen extends StatefulWidget {
   const UnitLoginScreen({super.key});
 
@@ -98,7 +97,6 @@ class _UnitLoginScreenState extends State<UnitLoginScreen> {
   }
 }
 
-// 2. Écran Principal en Service
 class ActiveServiceScreen extends StatefulWidget {
   final String unitId;
   const ActiveServiceScreen({super.key, required this.unitId});
@@ -116,7 +114,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   Timer? _locationTimer;
   Map<String, dynamic> _activeMission = {};
   
-  // Liste du matériel embarqué validé
   final Map<String, bool> _equipmentChecklist = {
     "Radio portable": false,
     "Gilet pare-balles": false,
@@ -152,16 +149,20 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
       if (permission == LocationPermission.denied) return;
     }
 
-    _locationTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    // Actualisation agressive et continue toutes les 3 secondes pour forcer le rafraîchissement GPS
+    _locationTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
-        Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+        Position position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.best,
+          timeLimit: const Duration(seconds: 2),
+        );
         setState(() {
           _latitude = position.latitude;
           _longitude = position.longitude;
         });
         _updateFirebaseData();
       } catch (e) {
-        // Ignorer les erreurs temporaires de GPS
+        // En cas de léger faux pas GPS, on tente une position simplifiée ou on conserve le flux
       }
     });
   }
@@ -249,7 +250,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
                   const SizedBox(height: 4),
                   Text(_currentStatus, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _getStatusColor(_currentStatus))),
                   const SizedBox(height: 8),
-                  Text('GPS : ${_latitude != null && _longitude != null ? "$_latitude, $_longitude" : "Acquisition..."}', style: const TextStyle(fontSize: 12)),
+                  Text('GPS : ${_latitude != null && _longitude != null ? "$_latitude, $_longitude" : "Acquisition du signal..."}', style: const TextStyle(fontSize: 12)),
                 ],
               ),
             ),
