@@ -115,7 +115,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   Timer? _locationTimer;
   Map<String, dynamic> _activeMission = {};
   
-  // Liste du matériel embarqué (sur 2 colonnes)
+  // Matériel embarqué (affichage 2 colonnes)
   final Map<String, bool> _equipmentChecklist = {
     "GAIL": false,
     "LBD": false,
@@ -144,13 +144,12 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   }
 
   Future<void> _requestAndInitLocation() async {
-    // Demande explicite des permissions systeme (Crosscall / Android)
+    // Demande forcée de la permission via permission_handler
     var status = await Permission.location.status;
     if (!status.isGranted) {
       status = await Permission.location.request();
     }
     
-    // Demande de la localisation en arrière-plan si disponible
     var alwaysStatus = await Permission.locationAlways.status;
     if (!alwaysStatus.isGranted) {
       await Permission.locationAlways.request();
@@ -165,7 +164,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
       return;
     }
 
-    // Lancement de la boucle de remontée GPS
+    // Boucle de rafraîchissement GPS
     _locationTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
         Position position = await Geolocator.getCurrentPosition(
