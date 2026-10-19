@@ -12,7 +12,6 @@ dependencies:
   firebase_core: ^2.24.2
   firebase_database: ^10.4.2
   geolocator: ^10.1.0
-  permission_handler: ^11.1.0
   permission_handler: ^11.3.1
 
 dev_dependencies:
