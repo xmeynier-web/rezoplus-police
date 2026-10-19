@@ -2,7 +2,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.rezoplus_terrain">
 
-    <!-- Injection forcée des permissions GPS et service de premier plan -->
+    <!-- Permissions explicites et obligatoires pour le GPS, le réseau et l'arrière-plan -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="replace" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="replace" />
@@ -13,7 +13,8 @@
     <application
         android:label="Rezo+ Terrain"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         
         <activity
             android:name=".MainActivity"
@@ -34,7 +35,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Déclaration explicite du service de géolocalisation pour Crosscall / Android 12+ -->
+        <!-- Service obligatoire pour le plugin geolocator sur les appareils renforcés -->
         <service
             android:name="com.baseflow.geolocator.GeolocatorLocationService"
             android:enabled="true"
