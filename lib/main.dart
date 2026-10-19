@@ -114,12 +114,18 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   Timer? _locationTimer;
   Map<String, dynamic> _activeMission = {};
   
+  // Liste du matériel mise à jour sur 2 colonnes avec vos acronymes
   final Map<String, bool> _equipmentChecklist = {
-    "Radio portable": false,
-    "Gilet pare-balles": false,
-    "PV électronique / Ordzo": false,
-    "Bâton de défense / LBD": false,
-    "Trousse de premiers secours": false,
+    "GAIL": false,
+    "LBD": false,
+    "PIE": false,
+    "BTD": false,
+    "PSA": false,
+    "Casque": false,
+    "Trousse PS": false,
+    "Ethylo": false,
+    "Kit Stup": false,
+    "DSA": false,
   };
 
   @override
@@ -149,7 +155,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
       if (permission == LocationPermission.denied) return;
     }
 
-    // Actualisation agressive et continue toutes les 3 secondes pour forcer le rafraîchissement GPS
     _locationTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
         Position position = await Geolocator.getCurrentPosition(
@@ -162,7 +167,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
         });
         _updateFirebaseData();
       } catch (e) {
-        // En cas de léger faux pas GPS, on tente une position simplifiée ou on conserve le flux
+        // Ignorer les erreurs temporaires de GPS
       }
     });
   }
@@ -317,29 +322,44 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
 
             const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Card(
-              color: const Color(0xFF1e1e2d),
-              child: ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _equipmentChecklist.length,
-                itemBuilder: (context, index) {
-                  String keyName = _equipmentChecklist.keys.elementAt(index);
-                  bool isChecked = _equipmentChecklist[keyName] ?? false;
-
-                  return CheckboxListTile(
-                    title: Text(keyName, style: const TextStyle(color: Colors.white)),
-                    value: isChecked,
-                    activeColor: Colors.blueAccent,
-                    onChanged: (bool? value) {
-                      setState(() {
-                        _equipmentChecklist[keyName] = value ?? false;
-                      });
-                      _updateFirebaseData();
-                    },
-                  );
-                },
+            
+            // Grille de matériel sur 2 colonnes
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 3.2,
               ),
+              itemCount: _equipmentChecklist.length,
+              itemBuilder: (context, index) {
+                String keyName = _equipmentChecklist.keys.elementAt(index);
+                bool isChecked = _equipmentChecklist[keyName] ?? false;
+
+                return CheckboxListTile(
+                  title: Text(
+                    keyName, 
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  value: isChecked,
+                  activeColor: Colors.blueAccent,
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: isChecked ? Colors.blueAccent : Colors.grey.shade800),
+                  ),
+                  tileColor: const Color(0xFF1e1e2d),
+                  onChanged: (bool? value) {
+                    setState(() {
+                      _equipmentChecklist[keyName] = value ?? false;
+                    });
+                    _updateFirebaseData();
+                  },
+                );
+              },
             ),
           ],
         ),
