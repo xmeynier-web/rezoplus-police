@@ -135,7 +135,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   @override
   void dispose() {
     _locationTimer?.cancel();
-    // Nettoyage ou mise hors ligne propre dans Firebase à la fermeture
     _dbRef.child("units/${widget.unitId}").update({"status": "HORS_SERVICE"});
     super.dispose();
   }
@@ -153,7 +152,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
       if (permission == LocationPermission.denied) return;
     }
 
-    // Boucle de mise à jour GPS et Keep-Alive en arrière-plan
     _locationTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       try {
         Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
@@ -163,7 +161,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
         });
         _updateFirebaseData();
       } catch (e) {
-        // Ignorer les erreurs temporaires de GPS pour éviter de couper le flux
+        // Ignorer les erreurs temporaires de GPS
       }
     });
   }
@@ -238,7 +236,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Indicateur de statut actuel
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -252,12 +249,12 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
                   const SizedBox(height: 4),
                   Text(_currentStatus, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _getStatusColor(_currentStatus))),
                   const SizedBox(height: 8),
-                  Text('GPS : ${_latitude != null && _longitude != null ? "$_latitude, $_longitude" : "Acquisition..."}', style: const TextStyle(fontSize: 12)),                ],
+                  Text('GPS : ${_latitude != null && _longitude != null ? "$_latitude, $_longitude" : "Acquisition..."}', style: const TextStyle(fontSize: 12)),
+                ],
               ),
             ),
             const SizedBox(height: 16),
 
-            // Bouton SOS Urgence
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: isSos ? Colors.grey : Colors.red,
@@ -271,7 +268,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Grille des statuts (Incluant "Retour au poste")
             const Text('Modifier le statut :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Wrap(
@@ -302,7 +298,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
             ),
             const Divider(height: 32, color: Colors.grey),
 
-            // Ordre de mission reçu du CSU
             if (_activeMission.isNotEmpty)
               Container(
                 margin: const EdgeInsets.only(bottom: 16),
@@ -319,7 +314,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
                 ),
               ),
 
-            // Checklist du matériel embarqué validable
             const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Card(
@@ -340,7 +334,6 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
                       setState(() {
                         _equipmentChecklist[keyName] = value ?? false;
                       });
-                      // Synchronisation immédiate avec Firebase lors du check/uncheck
                       _updateFirebaseData();
                     },
                   );
