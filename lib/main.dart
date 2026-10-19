@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -114,6 +115,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   Timer? _locationTimer;
   Map<String, dynamic> _activeMission = {};
   
+  // Liste du matériel embarqué (sur 2 colonnes)
   final Map<String, bool> _equipmentChecklist = {
     "GAIL": false,
     "LBD": false,
@@ -130,7 +132,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   @override
   void initState() {
     super.initState();
-    _initLocationAndSync();
+    _requestAndInitLocation();
     _listenToMissions();
   }
 
@@ -141,12 +143,20 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
     super.dispose();
   }
 
-  Future<void> _initLocationAndSync() async {
-    bool serviceEnabled;
-    LocationPermission permission;
+  Future<void> _requestAndInitLocation() async {
+    // Demande explicite des permissions systeme (Crosscall / Android)
+    var status = await Permission.location.status;
+    if (!status.isGranted) {
+      status = await Permission.location.request();
+    }
+    
+    // Demande de la localisation en arrière-plan si disponible
+    var alwaysStatus = await Permission.locationAlways.status;
+    if (!alwaysStatus.isGranted) {
+      await Permission.locationAlways.request();
+    }
 
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
+    if (!await Geolocator.isLocationServiceEnabled()) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur : Activez le GPS dans les paramètres du téléphone !', style: TextStyle(color: Colors.red))),
@@ -155,28 +165,7 @@ class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
       return;
     }
 
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Permission de localisation refusée.', style: TextStyle(color: Colors.red))),
-          );
-        }
-        return;
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Localisation bloquée définitivement. Allez dans les paramètres Android de l\'app.', style: TextStyle(color: Colors.red))),
-        );
-      }
-      return;
-    }
-
+    // Lancement de la boucle de remontée GPS
     _locationTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
         Position position = await Geolocator.getCurrentPosition(
