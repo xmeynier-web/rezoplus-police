@@ -1,12 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "AIzaSyCu0BK4h2hhaGV4C46C9y65rBJlnLftq3A",
@@ -17,73 +16,80 @@ void main() async {
       storageBucket: "rezoplus-police.firebasestorage.app",
     ),
   );
-  
-  runApp(const RezoPlusApp());
+  runApp(const RezoPlusMobileApp());
 }
 
-class RezoPlusApp extends StatelessWidget {
-  const RezoPlusApp({super.key});
+class RezoPlusMobileApp extends StatelessWidget {
+  const RezoPlusMobileApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Rezo+ Terrain',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        primaryColor: Colors.blue,
-        scaffoldBackgroundColor: const Color(0xFF1a1a24),
+        primaryColor: Colors.blueAccent,
+        scaffoldBackgroundColor: const Color(0xFF12121a),
       ),
-      home: const UnitConfigScreen(),
+      home: const UnitLoginScreen(),
     );
   }
 }
 
-class UnitConfigScreen extends StatefulWidget {
-  const UnitConfigScreen({super.key});
+// 1. Écran de connexion / Choix de l'indicatif
+class UnitLoginScreen extends StatefulWidget {
+  const UnitLoginScreen({super.key});
 
   @override
-  State<UnitConfigScreen> createState() => _UnitConfigScreenState();
+  State<UnitLoginScreen> createState() => _UnitLoginScreenState();
 }
 
-class _UnitConfigScreenState extends State<UnitConfigScreen> {
-  final TextEditingController _controller = TextEditingController(text: "ALPHA-1");
+class _UnitLoginScreenState extends State<UnitLoginScreen> {
+  final TextEditingController _unitController = TextEditingController();
 
-  void _startApp() {
-    if (_controller.text.trim().isEmpty) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PatrolScreen(unitId: _controller.text.trim().toUpperCase()),
-      ),
-    );
+  void _startService() {
+    if (_unitController.text.trim().isNotEmpty) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ActiveServiceScreen(unitId: _unitController.text.trim().toUpperCase()),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Rezo+ Initialisation Terrain')),
+      appBar: AppBar(title: const Text('REZO+ // Connexion Équipage')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Icon(Icons.local_police, size: 80, color: Colors.blueAccent),
-            const SizedBox(height: 20),
-            const Text('Entrez l\'indicatif de l\'équipage :', style: TextStyle(fontSize: 18)),
+            const SizedBox(height: 24),
+            const Text('Entrez votre indicatif radio :', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             TextField(
-              controller: _controller,
+              controller: _unitController,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
+                hintText: 'Ex: ALPHA-1, BRAVO-2...',
                 filled: true,
-                fillColor: Color(0xFF2d2d3f),
+                fillColor: Color(0xFF1e1e2d),
               ),
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 18, color: Colors.white),
             ),
             const SizedBox(height: 24),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, padding: const EdgeInsets.all(16)),
-              onPressed: _startApp,
-              child: const Text('Démarrer la prise de service', style: TextStyle(fontSize: 16, color: Colors.white)),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                onPressed: _startService,
+                child: const Text('Démarrer la prise de service', style: TextStyle(fontSize: 16)),
+              ),
             ),
           ],
         ),
@@ -92,183 +98,250 @@ class _UnitConfigScreenState extends State<UnitConfigScreen> {
   }
 }
 
-class PatrolScreen extends StatefulWidget {
+// 2. Écran Principal en Service
+class ActiveServiceScreen extends StatefulWidget {
   final String unitId;
-  const PatrolScreen({super.key, required this.unitId});
+  const ActiveServiceScreen({super.key, required this.unitId});
 
   @override
-  State<PatrolScreen> createState() => _PatrolScreenState();
+  State<ActiveServiceScreen> createState() => _ActiveServiceScreenState();
 }
 
-class _PatrolScreenState extends State<PatrolScreen> {
-  String _currentStatus = "EN_PATROUILLE";
-  bool _isSosActive = false;
-  final Map<String, dynamic> _equipment = {
-    "Arme de poing": false,
-    "Gilet pare-balles": false,
-    "Radio portative": false,
-    "Lampe tactique": false,
-    "Matraque télescopique": false,
-    "P.I.E. (Taser)": false,
-    "Menottes": false,
-    "Kit PV / Carnet": false,
-    "Trousse de premiers secours": false,
-    "Ethylotest": false,
-  };
-
-  Map<String, dynamic>? _activeMission;
+class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  
+  String _currentStatus = 'EN_PATROUILLE';
+  double? _latitude;
+  double? _longitude;
+  Timer? _locationTimer;
+  Map<String, dynamic> _activeMission = {};
+  
+  // Liste du matériel embarqué validé
+  final Map<String, bool> _equipmentChecklist = {
+    "Radio portable": false,
+    "Gilet pare-balles": false,
+    "PV électronique / Ordzo": false,
+    "Bâton de défense / LBD": false,
+    "Trousse de premiers secours": false,
+  };
 
   @override
   void initState() {
     super.initState();
-    _checkPermissionsAndStartGPS();
-    _listenToIncomingMissions();
+    _initLocationAndSync();
+    _listenToMissions();
   }
 
-  void _checkPermissionsAndStartGPS() async {
-    LocationPermission permission = await Geolocator.checkPermission();
+  @override
+  void dispose() {
+    _locationTimer?.cancel();
+    // Nettoyage ou mise hors ligne propre dans Firebase à la fermeture
+    _dbRef.child("units/${widget.unitId}").update({"status": "HORS_SERVICE"});
+    super.dispose();
+  }
+
+  Future<void> _initLocationAndSync() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
     }
 
-    if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
-      Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5),
-      ).listen((Position position) {
-        _updateFirebaseData(lat: position.latitude, lng: position.longitude);
-      });
-    }
+    // Boucle de mise à jour GPS et Keep-Alive en arrière-plan
+    _locationTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      try {
+        Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+        setState(() {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+        });
+        _updateFirebaseData();
+      } catch (e) {
+        // Ignorer les erreurs temporaires de GPS pour éviter de couper le flux
+      }
+    });
   }
 
-  void _updateFirebaseData({double? lat, double? lng}) {
-    Map<String, dynamic> data = {
-      "status": _isSosActive ? "SOS_ACTIF" : _currentStatus,
-      "last_update": ServerValue.timestamp,
-      "equipment": _equipment,
-    };
-    if (lat != null && lng != null) {
-      data["latitude"] = lat;
-      data["longitude"] = lng;
-    }
-    _dbRef.child("units/${widget.unitId}").update(data);
+  void _updateFirebaseData() {
+    _dbRef.child("units/${widget.unitId}").update({
+      "status": _currentStatus,
+      "latitude": _latitude,
+      "longitude": _longitude,
+      "equipment": _equipmentChecklist,
+      "last_seen": ServerValue.timestamp,
+    });
   }
 
-  void _listenToIncomingMissions() {
+  void _listenToMissions() {
     _dbRef.child("units/${widget.unitId}/active_mission").onValue.listen((event) {
-      final data = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (data != null) {
+      final data = event.snapshot.value;
+      if (data != null && data is Map) {
         setState(() {
           _activeMission = Map<String, dynamic>.from(data);
         });
       } else {
         setState(() {
-          _activeMission = null;
+          _activeMission = {};
         });
       }
     });
   }
 
-  void _setStatus(String status) {
+  void _changeStatus(String newStatus) {
     setState(() {
-      _currentStatus = status;
-      if (_isSosActive && status != "SOS_ACTIF") {
-        _isSosActive = false;
-      }
+      _currentStatus = newStatus;
     });
     _updateFirebaseData();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Statut mis à jour : $newStatus'), duration: const Duration(seconds: 1)),
+    );
   }
 
-  void _toggleSos() {
-    setState(() {
-      _isSosActive = !_isSosActive;
-    });
-    _updateFirebaseData();
-    if (_isSosActive) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("🚨 ALERTE SOS DÉCLENCHÉE !", style: TextStyle(color: Colors.white)), backgroundColor: Colors.red),
-      );
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'SOS_ACTIF': return Colors.red;
+      case 'EN_INTERVENTION': return Colors.orange;
+      case 'TRANSPORT': return Colors.blue;
+      case 'RETOUR_POSTE': return Colors.purple;
+      case 'EN_PATROUILLE': return Colors.green;
+      default: return Colors.grey;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    bool isSos = _currentStatus == 'SOS_ACTIF';
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('Rezo+ : ${widget.unitId}'),
-        backgroundColor: _isSosActive ? Colors.red : const Color(0xFF222230),
+        title: Text('Unité : ${widget.unitId}'),
+        backgroundColor: isSos ? Colors.red.shade900 : const Color(0xFF1a1a2e),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.exit_to_app),
+            onPressed: () {
+              _dbRef.child("units/${widget.unitId}").remove();
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const UnitLoginScreen()));
+            },
+            tooltip: 'Fin de service',
+          )
+        ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(12.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_activeMission != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade900,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.amber, width: 2),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("📢 ORDRE DE MISSION REÇU", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 4),
-                    Text("Objet : ${_activeMission!['title']}", style: const TextStyle(fontSize: 15)),
-                    Text("Lieu : ${_activeMission!['location']}", style: const TextStyle(fontSize: 13, color: Colors.white70)),
-                  ],
-                ),
+            // Indicateur de statut actuel
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _getStatusColor(_currentStatus).withOpacity(0.3),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _getStatusColor(_currentStatus), width: 2),
               ),
-
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isSosActive ? Colors.grey : Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              onPressed: _toggleSos,
-              icon: const Icon(Icons.warning, color: Colors.white, size: 28),
-              label: Text(
-                _isSosActive ? 'DÉSACTIVER L\'ALERTE SOS' : 'BOUTON SOS URGENCE',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+              child: Column(
+                children: [
+                  const Text('STATUT OPÉRATIONNEL ACTUEL', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                  const SizedBox(height: 4),
+                  Text(_currentStatus, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _getStatusColor(_currentStatus))),
+                  const SizedBox(height: 8),
+                  Text('GPS : ${_latitude != "$_latitude", _longitude != null ? "$_latitude, $_longitude" : "Acquisition..."}', style: const TextStyle(fontSize: 12)),
+                ],
               ),
             ),
             const SizedBox(height: 16),
 
-            const Text('Statut Opérationnel :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            // Bouton SOS Urgence
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isSos ? Colors.grey : Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: () {
+                _changeStatus(isSos ? 'EN_PATROUILLE' : 'SOS_ACTIF');
+              },
+              icon: const Icon(Icons.warning_amber_rounded, size: 28),
+              label: Text(isSos ? 'QUITTER L\'ÉTAT D\'URGENCE SOS' : '🚨 DÉCLENCHER UN SOS', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 16),
+
+            // Grille des statuts (Incluant "Retour au poste")
+            const Text('Modifier le statut :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                _statusButton("En Patrouille", "EN_PATROUILLE", Colors.green),
-                _statusButton("En Intervention", "EN_INTERVENTION", Colors.orange),
-                _statusButton("Transport / Transf.", "TRANSPORT", Colors.blue),
-                _statusButton("Indisponible", "INDISPONIBLE", Colors.grey),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  onPressed: () => _changeStatus('EN_PATROUILLE'),
+                  child: const Text('En Patrouille'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                  onPressed: () => _changeStatus('EN_INTERVENTION'),
+                  child: const Text('En Intervention'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                  onPressed: () => _changeStatus('TRANSPORT'),
+                  child: const Text('Transport'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                  onPressed: () => _changeStatus('RETOUR_POSTE'),
+                  child: const Text('Retour au poste'),
+                ),
               ],
             ),
-            const Divider(height: 30, color: Colors.grey),
+            const Divider(height: 32, color: Colors.grey),
 
-            const Text('Check-list Matériel Embarqué :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            // Ordre de mission reçu du CSU
+            if (_activeMission.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.amber.shade900.withOpacity(0.4), borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('📢 ORDRE DE MISSION REÇU :', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
+                    const SizedBox(height: 4),
+                    Text('Objet : ${_activeMission['title']}', style: const TextStyle(fontSize: 16)),
+                    Text('Lieu : ${_activeMission['location']}', style: const TextStyle(fontSize: 14)),
+                  ],
+                ),
+              ),
+
+            // Checklist du matériel embarqué validable
+            const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Card(
-              color: const Color(0xFF2d2d3f),
+              color: const Color(0xFF1e1e2d),
               child: ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: _equipment.keys.length,
+                itemCount: _equipmentChecklist.length,
                 itemBuilder: (context, index) {
-                  String key = _equipment.keys.elementAt(index);
+                  String keyName = _equipmentChecklist.keys.elementAt(index);
+                  bool isChecked = _equipmentChecklist[keyName] ?? false;
+
                   return CheckboxListTile(
-                    title: Text(key, style: const TextStyle(fontSize: 14)),
-                    value: _equipment[key],
-                    activeColor: Colors.blue,
+                    title: Text(keyName, style: const TextStyle(color: Colors.white)),
+                    value: isChecked,
+                    activeColor: Colors.blueAccent,
                     onChanged: (bool? value) {
                       setState(() {
-                        _equipment[key] = value ?? false;
+                        _equipmentChecklist[keyName] = value ?? false;
                       });
+                      // Synchronisation immédiate avec Firebase lors du check/uncheck
                       _updateFirebaseData();
                     },
                   );
@@ -278,18 +351,6 @@ class _PatrolScreenState extends State<PatrolScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _statusButton(String label, String value, Color color) {
-    bool isSelected = _currentStatus == value;
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? color : const Color(0xFF2d2d3f),
-        side: BorderSide(color: color, width: 2),
-      ),
-      onPressed: () => _setStatus(value),
-      child: Text(label, style: const TextStyle(color: Colors.white)),
     );
   }
 }
