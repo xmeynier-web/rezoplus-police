@@ -37,7 +37,7 @@ class PatrouilleApp extends StatelessWidget {
   }
 }
 
-// 1. ÉCRAN DE PRISE DE SERVICE (Saisie de l'indicatif radio)
+// 1. ÉCRAN DE PRISE DE SERVICE
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -52,7 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
     String unitId = _controller.text.trim();
     if (unitId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Veuillez entrer un indicatif radio valide (ex: ALPHA-1, CS)")),
+        const SnackBar(content: Text("Veuillez entrer un indicatif radio valide")),
       );
       return;
     }
@@ -136,7 +136,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   bool _isLocating = false;
   String _gpsStatusText = "Acquisition du signal...";
 
-  // Matériel embarqué complet fidèle aux visuels + Stop-Stick
+  // Liste complète du matériel embarqué (avec Stop-Stick)
   final Map<String, bool> _equipment = {
     "GAIL": true,
     "LBD": true,
@@ -155,7 +155,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   void initState() {
     super.initState();
     _updateUnitFirebase();
-    _autoFetchLocation(); // Tente un premier point GPS au démarrage
+    _autoFetchLocation();
   }
 
   Future<void> _updateUnitFirebase() async {
@@ -166,7 +166,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
-  // Acquisition GPS sécurisée anti-blocage Android
+  // Acquisition GPS
   Future<void> _autoFetchLocation() async {
     setState(() {
       _isLocating = true;
@@ -177,7 +177,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
-          _gpsStatusText = "GPS désactivé sur l'appareil";
+          _gpsStatusText = "GPS désactivé";
           _isLocating = false;
         });
         return;
@@ -216,12 +216,12 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         });
 
         setState(() {
-          _gpsStatusText = "GPS : Fixé (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+          _gpsStatusText = "GPS : ${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}";
           _isLocating = false;
         });
       } else {
         setState(() {
-          _gpsStatusText = "GPS : En attente de signal...";
+          _gpsStatusText = "GPS : Signal non fixé";
           _isLocating = false;
         });
       }
@@ -233,7 +233,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     }
   }
 
-  // Déconnexion et suppression propre du CSU
+  // Déconnexion propre de Firebase
   Future<void> _disconnectUnit() async {
     bool? confirm = await showDialog<bool>(
       context: context,
@@ -241,7 +241,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         return AlertDialog(
           backgroundColor: const Color(0xFF2d2d3f),
           title: const Text("Fin de service"),
-          content: Text("Voulez-vous clore le service de l'unité ${widget.unitId} et la retirer du CSU ?"),
+          content: Text("Voulez-vous déconnecter l'unité ${widget.unitId} ?"),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -270,6 +270,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   Color _getStatusBoxColor() {
     if (_currentStatus == "SOS_ACTIF") return Colors.red;
     if (_currentStatus == "EN_INTERVENTION") return Colors.orange;
+    if (_currentStatus == "CONTROLE_PR") return Colors.teal;
     if (_currentStatus == "EN_PATROUILLE") return Colors.green;
     if (_currentStatus == "TRANSPORT") return Colors.blue;
     if (_currentStatus == "RETOUR_POSTE") return Colors.purple;
@@ -280,7 +281,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Unité : ${widget.unitId}[cite: 1, 2]'),
+        title: Text('Unité : ${widget.unitId}'),
         backgroundColor: const Color(0xFF222230),
         actions: [
           IconButton(
@@ -295,7 +296,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. STATUT OPÉRATEUR ACTUEL (Fidèle au visuel 1)
+            // 1. BLOC STATUT OPÉRATIONNEL ACTUEL
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -306,7 +307,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               child: Column(
                 children: [
                   const Text(
-                    "STATUT OPÉRATIONNEL ACTUEL[cite: 1]",
+                    "STATUT OPÉRATIONNEL ACTUEL",
                     style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
@@ -324,7 +325,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
             ),
             const SizedBox(height: 15),
 
-            // 2. GROS BOUTON SOS (Fidèle au visuel 1)
+            // 2. BOUTON SOS
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
@@ -340,14 +341,14 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               },
               icon: const Icon(Icons.warning_amber_rounded, size: 28, color: Colors.white),
               label: const Text(
-                "DÉCLENCHER UN SOS[cite: 1]",
+                "DÉCLENCHER UN SOS",
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
             const SizedBox(height: 20),
 
-            // 3. MODIFIER LE STATUT (Fidèle aux visuels 1 & 2)
-            const Text("Modifier le statut :[cite: 1, 2]", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+            // 3. STATUTS (Inclut Contrôle PR)
+            const Text("Modifier le statut :", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
             const SizedBox(height: 10),
             GridView.count(
               crossAxisCount: 2,
@@ -359,14 +360,15 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               children: [
                 _buildStatusGridButton("En Patrouille", "EN_PATROUILLE", Colors.green),
                 _buildStatusGridButton("En Intervention", "EN_INTERVENTION", Colors.orange),
+                _buildStatusGridButton("Contrôle PR", "CONTROLE_PR", Colors.teal),
                 _buildStatusGridButton("Transport", "TRANSPORT", Colors.blue),
                 _buildStatusGridButton("Retour au poste", "RETOUR_POSTE", Colors.purple),
               ],
             ),
             const Divider(height: 30, color: Colors.grey),
 
-            // 4. CONTRÔLE DU MATÉRIEL EMBARQUÉ (Fidèle à la grille des visuels 1 & 2)
-            const Text("Contrôle du Matériel Embarqué :[cite: 1, 2]", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+            // 4. MATÉRIEL EMBARQUÉ
+            const Text("Contrôle du Matériel Embarqué :", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
             const SizedBox(height: 10),
             GridView.builder(
               shrinkWrap: true,
@@ -430,7 +432,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       },
       child: Text(
         label,
-        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
       ),
     );
   }
