@@ -29,7 +29,7 @@ class PatrouilleApp extends StatelessWidget {
       title: 'Rezo+ Patrouille',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF12121a),
+        scaffoldBackgroundColor: const Color(0xFF1a1a24),
         primaryColor: Colors.blueAccent,
       ),
       home: const PatrouilleScreen(),
@@ -74,28 +74,31 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
+  // Fonction GPS ultra-sécurisée contre les blocages Android récents
   Future<void> _shareCurrentLocation() async {
     setState(() {
       _isLocating = true;
-      _gpsStatusText = "Acquisition du signal GPS...";
+      _gpsStatusText = "Recherche du signal GPS...";
     });
 
     try {
+      // 1. Vérification du service GPS
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
-          _gpsStatusText = "⚠️ Activez la localisation GPS sur le téléphone";
+          _gpsStatusText = "⚠️ Activez le GPS dans les paramètres du téléphone";
           _isLocating = false;
         });
         return;
       }
 
+      // 2. Vérification des permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           setState(() {
-            _gpsStatusText = "❌ Permission GPS refusée";
+            _gpsStatusText = "❌ Permission GPS refusée par l'utilisateur";
             _isLocating = false;
           });
           return;
@@ -104,17 +107,38 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
 
       if (permission == LocationPermission.deniedForever) {
         setState(() {
-          _gpsStatusText = "❌ GPS bloqué dans les paramètres d'Android";
+          _gpsStatusText = "❌ GPS bloqué définitivement (voir réglages Android)";
           _isLocating = false;
         });
         return;
       }
 
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
+      Position? position;
 
+      try {
+        // 3. Tentative d'acquisition directe avec un délai strict de 6 secondes 
+        // et contournement des services Google via forceAndroidLocationManager
+        position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 6),
+          forceAndroidLocationManager: true,
+        );
+      } catch (e) {
+        // En cas de dépassement (ex: bâtiment fermé), on bascule sur la dernière position connue
+        position = await Geolocator.getLastKnownPosition(
+          forceAndroidLocationManager: true,
+        );
+      }
+
+      if (position == null) {
+        setState(() {
+          _gpsStatusText = "⚠️ Signal GPS introuvable (allez près d'une fenêtre)";
+          _isLocating = false;
+        });
+        return;
+      }
+
+      // 4. Envoi immédiat des coordonnées vers Firebase
       await _dbRef.child("units/$_unitId").update({
         "latitude": position.latitude,
         "longitude": position.longitude,
@@ -122,7 +146,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       });
 
       setState(() {
-        _gpsStatusText = "✅ Position envoyée au PC (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+        _gpsStatusText = "✅ Position transmise (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
         _isLocating = false;
       });
 
@@ -137,7 +161,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       }
     } catch (e) {
       setState(() {
-        _gpsStatusText = "⚠️ Erreur lors de l'acquisition GPS";
+        _gpsStatusText = "⚠️ Erreur technique lors du ciblage GPS";
         _isLocating = false;
       });
     }
@@ -148,7 +172,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('REZO+ // ÉQUIPAGE : $_unitId'),
-        backgroundColor: _currentStatus == "SOS_ACTIF" ? Colors.red : const Color(0xFF1a1a2e),
+        backgroundColor: _currentStatus == "SOS_ACTIF" ? Colors.red : const Color(0xFF222230),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -157,7 +181,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Card(
-              color: const Color(0xFF1e1e2d),
+              color: const Color(0xFF2d2d3f),
               child: Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Row(
@@ -168,7 +192,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
                       child: DropdownButton<String>(
                         value: _unitId,
                         isExpanded: true,
-                        dropdownColor: const Color(0xFF1e1e2d),
+                        dropdownColor: const Color(0xFF2d2d3f),
                         items: ["ALPHA-1", "ALPHA-2", "PATROUILLE-VTT", "CANINE-1"]
                             .map((name) => DropdownMenuItem(value: name, child: Text(name)))
                             .toList(),
@@ -191,25 +215,25 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent,
                 padding: const EdgeInsets.symmetric(vertical: 18),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: _isLocating ? null : _shareCurrentLocation,
               icon: _isLocating 
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.my_location, size: 28),
+                  : const Icon(Icons.my_location, size: 26),
               label: Text(
                 _isLocating ? "Acquisition en cours..." : "📍 TRANSMETTRE MA POSITION GPS",
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               _gpsStatusText,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
-            const SizedBox(height: 24),
-            const Text("STATUT DE L'ÉQUIPAGE", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            const SizedBox(height: 20),
+            const Text("STATUT DE L'ÉQUIPAGE", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -223,11 +247,11 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
                 _buildStatusButton("SOS_ACTIF", "🚨 SOS DÉTRESSE", Colors.red),
               ],
             ),
-            const SizedBox(height: 24),
-            const Text("MATÉRIEL EMBARQUÉ", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            const SizedBox(height: 20),
+            const Text("MATÉRIEL EMBARQUÉ", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange)),
             const SizedBox(height: 8),
             Card(
-              color: const Color(0xFF1e1e2d),
+              color: const Color(0xFF2d2d3f),
               child: Column(
                 children: _equipment.keys.map((item) {
                   return CheckboxListTile(
@@ -257,7 +281,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       style: ElevatedButton.styleFrom(
         backgroundColor: isSelected ? color : color.withOpacity(0.2),
         side: BorderSide(color: color, width: isSelected ? 2 : 1),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       ),
       onPressed: () {
         setState(() {
