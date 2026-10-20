@@ -37,6 +37,7 @@ class PatrouilleApp extends StatelessWidget {
   }
 }
 
+// 1. ÉCRAN DE CONNEXION SIMPLIFIÉ (Sans blocage)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -47,7 +48,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _controller = TextEditingController();
 
-  void _startService() async {
+  void _startService() {
     String unitId = _controller.text.trim();
     if (unitId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -56,14 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Demande des permissions GPS dès la connexion pour éviter les blocages
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (!mounted) return;
-
+    // Navigation directe et instantanée vers l'écran principal
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -127,6 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+// 2. ÉCRAN PRINCIPAL DE LA PATROUILLE
 class PatrouilleScreen extends StatefulWidget {
   final String unitId;
   const PatrouilleScreen({super.key, required this.unitId});
@@ -162,7 +157,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     super.initState();
     _updateUnitFirebase();
     _listenForMissions();
-    _fetchLocation(); // Tentative au lancement
+    _fetchLocation();
   }
 
   void _listenForMissions() {
@@ -188,7 +183,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
-  // Fonction de géolocalisation robuste avec ouverture des réglages si échec
   Future<void> _fetchLocation() async {
     setState(() {
       _isLocating = true;
@@ -199,10 +193,10 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
-          _gpsStatusText = "⚠️ GPS désactivé. Cliquez ici pour l'activer.";
+          _gpsStatusText = "GPS désactivé. Position par défaut (Fresnes).";
           _isLocating = false;
         });
-        await Geolocator.openLocationSettings();
+        await _sendDefaultLocation();
         return;
       }
 
@@ -211,32 +205,22 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           setState(() {
-            _gpsStatusText = "❌ Permission de localisation refusée.";
+            _gpsStatusText = "Permission refusée. Position par défaut.";
             _isLocating = false;
           });
+          await _sendDefaultLocation();
           return;
         }
       }
 
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _gpsStatusText = "❌ Permission bloquée. Ouvrez les réglages Android.";
-          _isLocating = false;
-        });
-        await Geolocator.openAppSettings();
-        return;
-      }
-
       Position? position;
       try {
-        // Tentative rapide via le réseau/Wi-Fi/GPS
         position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.low,
-          timeLimit: const Duration(seconds: 5),
+          timeLimit: const Duration(seconds: 4),
           forceAndroidLocationManager: true,
         );
       } catch (e) {
-        // Repli sur la dernière position connue si le fix direct échoue
         position = await Geolocator.getLastKnownPosition(
           forceAndroidLocationManager: true,
         );
@@ -254,24 +238,23 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
           _isLocating = false;
         });
       } else {
-        // Si tout échoue, on envoie des coordonnées par défaut (centre de Fresnes) pour que l'unité apparaisse quand même sur la carte du CSU
-        await _dbRef.child("units/${widget.unitId}").update({
-          "latitude": 48.7538,
-          "longitude": 2.3218,
-          "derniere_maj": ServerValue.timestamp,
-        });
-
-        setState(() {
-          _gpsStatusText = "⚠️ Position par défaut (Fresnes) transmise";
-          _isLocating = false;
-        });
+        await _sendDefaultLocation();
       }
     } catch (e) {
-      setState(() {
-        _gpsStatusText = "⚠️ Erreur technique GPS";
-        _isLocating = false;
-      });
+      await _sendDefaultLocation();
     }
+  }
+
+  Future<void> _sendDefaultLocation() async {
+    await _dbRef.child("units/${widget.unitId}").update({
+      "latitude": 48.7538,
+      "longitude": 2.3218,
+      "derniere_maj": ServerValue.timestamp,
+    });
+    setState(() {
+      _gpsStatusText = "⚠️ Position par défaut (Fresnes) transmise";
+      _isLocating = false;
+    });
   }
 
   Future<void> _disconnectUnit() async {
@@ -355,7 +338,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               ),
             ],
 
-            // Bloc cliquable pour forcer la mise à jour GPS manuellement
             GestureDetector(
               onTap: _fetchLocation,
               child: Container(
