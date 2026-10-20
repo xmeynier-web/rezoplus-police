@@ -37,7 +37,6 @@ class PatrouilleApp extends StatelessWidget {
   }
 }
 
-// 1. ÉCRAN DE PRISE DE SERVICE
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -48,7 +47,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _controller = TextEditingController();
 
-  void _startService() {
+  void _startService() async {
     String unitId = _controller.text.trim();
     if (unitId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -56,6 +55,14 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return;
     }
+
+    // Demande des permissions GPS dès la connexion pour éviter les blocages
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (!mounted) return;
 
     Navigator.pushReplacement(
       context,
@@ -120,7 +127,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// 2. ÉCRAN PRINCIPAL DE LA PATROUILLE
 class PatrouilleScreen extends StatefulWidget {
   final String unitId;
   const PatrouilleScreen({super.key, required this.unitId});
@@ -134,7 +140,8 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   
   String _currentStatus = "EN_PATROUILLE";
   bool _isLocating = false;
-  String _gpsStatusText = "Acquisition du signal...";
+  String _gpsStatusText = "Appuyez pour actualiser la position";
+  String? _incomingMission;
 
   final Map<String, bool> _equipment = {
     "GAIL": true,
@@ -154,7 +161,23 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   void initState() {
     super.initState();
     _updateUnitFirebase();
-    _autoFetchLocation();
+    _listenForMissions();
+    _fetchLocation(); // Tentative au lancement
+  }
+
+  void _listenForMissions() {
+    _dbRef.child("units/${widget.unitId}/active_mission").onValue.listen((event) {
+      final data = event.snapshot.value as Map?;
+      if (data != null) {
+        setState(() {
+          _incomingMission = "${data['title']} - Lieu : ${data['location']}";
+        });
+      } else {
+        setState(() {
+          _incomingMission = null;
+        });
+      }
+    });
   }
 
   Future<void> _updateUnitFirebase() async {
@@ -165,20 +188,21 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
-  // Acquisition hybride : Réseau mobile / Wi-Fi / GPS avec repli immédiat
-  Future<void> _autoFetchLocation() async {
+  // Fonction de géolocalisation robuste avec ouverture des réglages si échec
+  Future<void> _fetchLocation() async {
     setState(() {
       _isLocating = true;
-      _gpsStatusText = "Recherche de position (Réseau/GPS)...";
+      _gpsStatusText = "Recherche de position en cours...";
     });
 
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
-          _gpsStatusText = "Localisation désactivée sur l'appareil";
+          _gpsStatusText = "⚠️ GPS désactivé. Cliquez ici pour l'activer.";
           _isLocating = false;
         });
+        await Geolocator.openLocationSettings();
         return;
       }
 
@@ -187,23 +211,32 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           setState(() {
-            _gpsStatusText = "Permission de localisation refusée";
+            _gpsStatusText = "❌ Permission de localisation refusée.";
             _isLocating = false;
           });
           return;
         }
       }
 
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _gpsStatusText = "❌ Permission bloquée. Ouvrez les réglages Android.";
+          _isLocating = false;
+        });
+        await Geolocator.openAppSettings();
+        return;
+      }
+
       Position? position;
       try {
-        // 1. On tente d'abord une acquisition rapide via le réseau mobile / Wi-Fi (précision moyenne)
+        // Tentative rapide via le réseau/Wi-Fi/GPS
         position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.medium,
-          timeLimit: const Duration(seconds: 4),
+          desiredAccuracy: LocationAccuracy.low,
+          timeLimit: const Duration(seconds: 5),
           forceAndroidLocationManager: true,
         );
       } catch (e) {
-        // 2. Si le réseau échoue, on récupère la dernière position enregistrée en mémoire
+        // Repli sur la dernière position connue si le fix direct échoue
         position = await Geolocator.getLastKnownPosition(
           forceAndroidLocationManager: true,
         );
@@ -217,18 +250,25 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         });
 
         setState(() {
-          _gpsStatusText = "Position OK (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+          _gpsStatusText = "✅ Position OK (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
           _isLocating = false;
         });
       } else {
+        // Si tout échoue, on envoie des coordonnées par défaut (centre de Fresnes) pour que l'unité apparaisse quand même sur la carte du CSU
+        await _dbRef.child("units/${widget.unitId}").update({
+          "latitude": 48.7538,
+          "longitude": 2.3218,
+          "derniere_maj": ServerValue.timestamp,
+        });
+
         setState(() {
-          _gpsStatusText = "Position introuvable (Vérifiez le réseau)";
+          _gpsStatusText = "⚠️ Position par défaut (Fresnes) transmise";
           _isLocating = false;
         });
       }
     } catch (e) {
       setState(() {
-        _gpsStatusText = "Erreur de géolocalisation";
+        _gpsStatusText = "⚠️ Erreur technique GPS";
         _isLocating = false;
       });
     }
@@ -286,7 +326,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.redAccent),
-            tooltip: "Déconnexion / Fin de service",
+            tooltip: "Fin de service",
             onPressed: _disconnectUnit,
           ),
         ],
@@ -296,36 +336,59 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. BLOC STATUT OPÉRATIONNEL ACTUEL
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: _getStatusBoxColor().withOpacity(0.2),
-                border: Border.all(color: _getStatusBoxColor(), width: 2),
-                borderRadius: BorderRadius.circular(12),
+            if (_incomingMission != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 15),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.3),
+                  border: Border.all(color: Colors.orange, width: 2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  children: [
+                    const Text("🚨 NOUVELLE MISSION DISPATCH", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
+                    const SizedBox(height: 5),
+                    Text(_incomingMission!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
+                  ],
+                ),
               ),
-              child: Column(
-                children: [
-                  const Text(
-                    "STATUT OPÉRATIONNEL ACTUEL",
-                    style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _currentStatus,
-                    style: TextStyle(fontSize: 22, color: _getStatusBoxColor(), fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _gpsStatusText,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
+            ],
+
+            // Bloc cliquable pour forcer la mise à jour GPS manuellement
+            GestureDetector(
+              onTap: _fetchLocation,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _getStatusBoxColor().withOpacity(0.2),
+                  border: Border.all(color: _getStatusBoxColor(), width: 2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      "STATUT OPÉRATIONNEL ACTUEL (Appuyez pour actualiser GPS)",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _currentStatus,
+                      style: TextStyle(fontSize: 22, color: _getStatusBoxColor(), fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _gpsStatusText,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.yellowAccent),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 15),
 
-            // 2. BOUTON SOS
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
@@ -337,7 +400,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
                   _currentStatus = "SOS_ACTIF";
                 });
                 _updateUnitFirebase();
-                _autoFetchLocation();
+                _fetchLocation();
               },
               icon: const Icon(Icons.warning_amber_rounded, size: 28, color: Colors.white),
               label: const Text(
@@ -347,7 +410,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
             ),
             const SizedBox(height: 20),
 
-            // 3. STATUTS (Inclut Contrôle PR)
             const Text("Modifier le statut :", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
             const SizedBox(height: 10),
             GridView.count(
@@ -367,7 +429,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
             ),
             const Divider(height: 30, color: Colors.grey),
 
-            // 4. MATÉRIEL EMBARQUÉ
             const Text("Contrôle du Matériel Embarqué :", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
             const SizedBox(height: 10),
             GridView.builder(
@@ -428,7 +489,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
           _currentStatus = statusKey;
         });
         _updateUnitFirebase();
-        _autoFetchLocation();
+        _fetchLocation();
       },
       child: Text(
         label,
