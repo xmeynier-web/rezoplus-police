@@ -136,7 +136,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   bool _isLocating = false;
   String _gpsStatusText = "Acquisition du signal...";
 
-  // Liste complète du matériel embarqué (avec Stop-Stick)
   final Map<String, bool> _equipment = {
     "GAIL": true,
     "LBD": true,
@@ -166,18 +165,18 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
-  // Acquisition GPS
+  // Acquisition hybride : Réseau mobile / Wi-Fi / GPS avec repli immédiat
   Future<void> _autoFetchLocation() async {
     setState(() {
       _isLocating = true;
-      _gpsStatusText = "Acquisition du signal...";
+      _gpsStatusText = "Recherche de position (Réseau/GPS)...";
     });
 
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
-          _gpsStatusText = "GPS désactivé";
+          _gpsStatusText = "Localisation désactivée sur l'appareil";
           _isLocating = false;
         });
         return;
@@ -188,7 +187,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           setState(() {
-            _gpsStatusText = "Permission GPS refusée";
+            _gpsStatusText = "Permission de localisation refusée";
             _isLocating = false;
           });
           return;
@@ -197,12 +196,14 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
 
       Position? position;
       try {
+        // 1. On tente d'abord une acquisition rapide via le réseau mobile / Wi-Fi (précision moyenne)
         position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 6),
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 4),
           forceAndroidLocationManager: true,
         );
       } catch (e) {
+        // 2. Si le réseau échoue, on récupère la dernière position enregistrée en mémoire
         position = await Geolocator.getLastKnownPosition(
           forceAndroidLocationManager: true,
         );
@@ -216,24 +217,23 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         });
 
         setState(() {
-          _gpsStatusText = "GPS : ${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}";
+          _gpsStatusText = "Position OK (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
           _isLocating = false;
         });
       } else {
         setState(() {
-          _gpsStatusText = "GPS : Signal non fixé";
+          _gpsStatusText = "Position introuvable (Vérifiez le réseau)";
           _isLocating = false;
         });
       }
     } catch (e) {
       setState(() {
-        _gpsStatusText = "GPS : Erreur d'acquisition";
+        _gpsStatusText = "Erreur de géolocalisation";
         _isLocating = false;
       });
     }
   }
 
-  // Déconnexion propre de Firebase
   Future<void> _disconnectUnit() async {
     bool? confirm = await showDialog<bool>(
       context: context,
