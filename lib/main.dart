@@ -1,12 +1,11 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: "AIzaSyCu0BK4h2hhaGV4C46C9y65rBJlnLftq3A",
@@ -17,364 +16,260 @@ void main() async {
       storageBucket: "rezoplus-police.firebasestorage.app",
     ),
   );
-  runApp(const RezoPlusMobileApp());
+
+  runApp(const PatrouilleApp());
 }
 
-class RezoPlusMobileApp extends StatelessWidget {
-  const RezoPlusMobileApp({super.key});
+class PatrouilleApp extends StatelessWidget {
+  const PatrouilleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Rezo+ Terrain',
+      title: 'Rezo+ Patrouille',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        primaryColor: Colors.blueAccent,
         scaffoldBackgroundColor: const Color(0xFF12121a),
+        primaryColor: Colors.blueAccent,
       ),
-      home: const UnitLoginScreen(),
+      home: const PatrouilleScreen(),
     );
   }
 }
 
-class UnitLoginScreen extends StatefulWidget {
-  const UnitLoginScreen({super.key});
+class PatrouilleScreen extends StatefulWidget {
+  const PatrouilleScreen({super.key});
 
   @override
-  State<UnitLoginScreen> createState() => _UnitLoginScreenState();
+  State<PatrouilleScreen> createState() => _PatrouilleScreenState();
 }
 
-class _UnitLoginScreenState extends State<UnitLoginScreen> {
-  final TextEditingController _unitController = TextEditingController();
-
-  void _startService() {
-    if (_unitController.text.trim().isNotEmpty) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ActiveServiceScreen(unitId: _unitController.text.trim().toUpperCase()),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('REZO+ // Connexion Équipage')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.local_police, size: 80, color: Colors.blueAccent),
-            const SizedBox(height: 24),
-            const Text('Entrez votre indicatif radio :', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _unitController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Ex: ALPHA-1, BRAVO-2...',
-                filled: true,
-                fillColor: Color(0xFF1e1e2d),
-              ),
-              style: const TextStyle(fontSize: 18, color: Colors.white),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-                onPressed: _startService,
-                child: const Text('Démarrer la prise de service', style: TextStyle(fontSize: 16)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class ActiveServiceScreen extends StatefulWidget {
-  final String unitId;
-  const ActiveServiceScreen({super.key, required this.unitId});
-
-  @override
-  State<ActiveServiceScreen> createState() => _ActiveServiceScreenState();
-}
-
-class _ActiveServiceScreenState extends State<ActiveServiceScreen> {
+class _PatrouilleScreenState extends State<PatrouilleScreen> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   
-  String _currentStatus = 'EN_PATROUILLE';
-  double? _latitude;
-  double? _longitude;
-  Timer? _locationTimer;
-  Map<String, dynamic> _activeMission = {};
-  
-  // Matériel embarqué (affichage 2 colonnes)
-  final Map<String, bool> _equipmentChecklist = {
-    "GAIL": false,
-    "LBD": false,
-    "PIE": false,
-    "BTD": false,
-    "PSA": false,
-    "Casque": false,
-    "Trousse PS": false,
-    "Ethylo": false,
-    "Kit Stup": false,
-    "DSA": false,
+  String _unitId = "ALPHA-1";
+  String _currentStatus = "EN_PATROUILLE";
+  bool _isLocating = false;
+  String _gpsStatusText = "Position non transmise";
+
+  final Map<String, bool> _equipment = {
+    "PVE": true,
+    "Radio TLK": true,
+    "Kit Secours": false,
+    "Gilet Pare-Balles": true,
+    "Éthylotest": false,
   };
 
   @override
   void initState() {
     super.initState();
-    _requestAndInitLocation();
-    _listenToMissions();
+    _updateUnitFirebase();
   }
 
-  @override
-  void dispose() {
-    _locationTimer?.cancel();
-    _dbRef.child("units/${widget.unitId}").update({"status": "HORS_SERVICE"});
-    super.dispose();
+  Future<void> _updateUnitFirebase() async {
+    await _dbRef.child("units/$_unitId").update({
+      "status": _currentStatus,
+      "equipment": _equipment,
+      "derniere_maj": ServerValue.timestamp,
+    });
   }
 
-  Future<void> _requestAndInitLocation() async {
-    // Demande forcée de la permission via permission_handler
-    var status = await Permission.location.status;
-    if (!status.isGranted) {
-      status = await Permission.location.request();
-    }
-    
-    var alwaysStatus = await Permission.locationAlways.status;
-    if (!alwaysStatus.isGranted) {
-      await Permission.locationAlways.request();
-    }
+  Future<void> _shareCurrentLocation() async {
+    setState(() {
+      _isLocating = true;
+      _gpsStatusText = "Acquisition du signal GPS...";
+    });
 
-    if (!await Geolocator.isLocationServiceEnabled()) {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() {
+          _gpsStatusText = "⚠️ Activez la localisation GPS sur le téléphone";
+          _isLocating = false;
+        });
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() {
+            _gpsStatusText = "❌ Permission GPS refusée";
+            _isLocating = false;
+          });
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _gpsStatusText = "❌ GPS bloqué dans les paramètres d'Android";
+          _isLocating = false;
+        });
+        return;
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+
+      await _dbRef.child("units/$_unitId").update({
+        "latitude": position.latitude,
+        "longitude": position.longitude,
+        "derniere_maj": ServerValue.timestamp,
+      });
+
+      setState(() {
+        _gpsStatusText = "✅ Position envoyée au PC (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+        _isLocating = false;
+      });
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Erreur : Activez le GPS dans les paramètres du téléphone !', style: TextStyle(color: Colors.red))),
+          const SnackBar(
+            content: Text("📍 Position GPS transmise au CSU avec succès !"),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
         );
       }
-      return;
-    }
-
-    // Boucle de rafraîchissement GPS
-    _locationTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-      try {
-        Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.best,
-          timeLimit: const Duration(seconds: 3),
-        );
-        if (mounted) {
-          setState(() {
-            _latitude = position.latitude;
-            _longitude = position.longitude;
-          });
-          _updateFirebaseData();
-        }
-      } catch (_) {}
-    });
-  }
-
-  void _updateFirebaseData() {
-    _dbRef.child("units/${widget.unitId}").update({
-      "status": _currentStatus,
-      "latitude": _latitude,
-      "longitude": _longitude,
-      "equipment": _equipmentChecklist,
-      "last_seen": ServerValue.timestamp,
-    });
-  }
-
-  void _listenToMissions() {
-    _dbRef.child("units/${widget.unitId}/active_mission").onValue.listen((event) {
-      final data = event.snapshot.value;
-      if (data != null && data is Map) {
-        if (mounted) {
-          setState(() {
-            _activeMission = Map<String, dynamic>.from(data);
-          });
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _activeMission = {};
-          });
-        }
-      }
-    });
-  }
-
-  void _changeStatus(String newStatus) {
-    setState(() {
-      _currentStatus = newStatus;
-    });
-    _updateFirebaseData();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Statut mis à jour : $newStatus'), duration: const Duration(seconds: 1)),
-    );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'SOS_ACTIF': return Colors.red;
-      case 'EN_INTERVENTION': return Colors.orange;
-      case 'TRANSPORT': return Colors.blue;
-      case 'RETOUR_POSTE': return Colors.purple;
-      case 'EN_PATROUILLE': return Colors.green;
-      default: return Colors.grey;
+    } catch (e) {
+      setState(() {
+        _gpsStatusText = "⚠️ Erreur lors de l'acquisition GPS";
+        _isLocating = false;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    bool isSos = _currentStatus == 'SOS_ACTIF';
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Unité : ${widget.unitId}'),
-        backgroundColor: isSos ? Colors.red.shade900 : const Color(0xFF1a1a2e),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.exit_to_app),
-            onPressed: () {
-              _dbRef.child("units/${widget.unitId}").remove();
-              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const UnitLoginScreen()));
-            },
-            tooltip: 'Fin de service',
-          )
-        ],
+        title: Text('REZO+ // ÉQUIPAGE : $_unitId'),
+        backgroundColor: _currentStatus == "SOS_ACTIF" ? Colors.red : const Color(0xFF1a1a2e),
+        centerTitle: true,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: _getStatusColor(_currentStatus).withOpacity(0.3),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: _getStatusColor(_currentStatus), width: 2),
-              ),
-              child: Column(
-                children: [
-                  const Text('STATUT OPÉRATIONNEL ACTUEL', style: TextStyle(fontSize: 12, color: Colors.white70)),
-                  const SizedBox(height: 4),
-                  Text(_currentStatus, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _getStatusColor(_currentStatus))),
-                  const SizedBox(height: 8),
-                  Text('GPS : ${_latitude != null && _longitude != null ? "$_latitude, $_longitude" : "Acquisition du signal..."}', style: const TextStyle(fontSize: 12)),
-                ],
+            Card(
+              color: const Color(0xFF1e1e2d),
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  children: [
+                    const Text("Nom de l'équipage : ", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: DropdownButton<String>(
+                        value: _unitId,
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFF1e1e2d),
+                        items: ["ALPHA-1", "ALPHA-2", "PATROUILLE-VTT", "CANINE-1"]
+                            .map((name) => DropdownMenuItem(value: name, child: Text(name)))
+                            .toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _unitId = val;
+                            });
+                            _updateUnitFirebase();
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
-
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: isSos ? Colors.grey : Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                backgroundColor: Colors.blueAccent,
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              onPressed: () {
-                _changeStatus(isSos ? 'EN_PATROUILLE' : 'SOS_ACTIF');
-              },
-              icon: const Icon(Icons.warning_amber_rounded, size: 28),
-              label: Text(isSos ? 'QUITTER L\'ÉTAT D\'URGENCE SOS' : '🚨 DÉCLENCHER UN SOS', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              onPressed: _isLocating ? null : _shareCurrentLocation,
+              icon: _isLocating 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.my_location, size: 28),
+              label: Text(
+                _isLocating ? "Acquisition en cours..." : "📍 TRANSMETTRE MA POSITION GPS",
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
             ),
-            const SizedBox(height: 16),
-
-            const Text('Modifier le statut :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(
+              _gpsStatusText,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            const Text("STATUT DE L'ÉQUIPAGE", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  onPressed: () => _changeStatus('EN_PATROUILLE'),
-                  child: const Text('En Patrouille'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                  onPressed: () => _changeStatus('EN_INTERVENTION'),
-                  child: const Text('En Intervention'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                  onPressed: () => _changeStatus('TRANSPORT'),
-                  child: const Text('Transport'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
-                  onPressed: () => _changeStatus('RETOUR_POSTE'),
-                  child: const Text('Retour au poste'),
-                ),
+                _buildStatusButton("EN_PATROUILLE", "Patrouille", Colors.green),
+                _buildStatusButton("EN_INTERVENTION", "Intervention", Colors.orange),
+                _buildStatusButton("TRANSPORT", "Transport", Colors.blue),
+                _buildStatusButton("RETOUR_POSTE", "Retour Poste", Colors.purple),
+                _buildStatusButton("HORS_SERVICE", "Hors Service", Colors.grey),
+                _buildStatusButton("SOS_ACTIF", "🚨 SOS DÉTRESSE", Colors.red),
               ],
             ),
-            const Divider(height: 32, color: Colors.grey),
-
-            if (_activeMission.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.amber.shade900.withOpacity(0.4), borderRadius: BorderRadius.circular(8)),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('📢 ORDRE DE MISSION REÇU :', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.amber)),
-                    const SizedBox(height: 4),
-                    Text('Objet : ${_activeMission['title']}', style: const TextStyle(fontSize: 16)),
-                    Text('Lieu : ${_activeMission['location']}', style: const TextStyle(fontSize: 14)),
-                  ],
-                ),
-              ),
-
-            const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+            const Text("MATÉRIEL EMBARQUÉ", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
             const SizedBox(height: 8),
-            
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 3.2,
+            Card(
+              color: const Color(0xFF1e1e2d),
+              child: Column(
+                children: _equipment.keys.map((item) {
+                  return CheckboxListTile(
+                    title: Text(item),
+                    value: _equipment[item],
+                    activeColor: Colors.blueAccent,
+                    onChanged: (bool? val) {
+                      setState(() {
+                        _equipment[item] = val ?? false;
+                      });
+                      _updateUnitFirebase();
+                    },
+                  );
+                }).toList(),
               ),
-              itemCount: _equipmentChecklist.length,
-              itemBuilder: (context, index) {
-                String keyName = _equipmentChecklist.keys.elementAt(index);
-                bool isChecked = _equipmentChecklist[keyName] ?? false;
-
-                return CheckboxListTile(
-                  title: Text(
-                    keyName, 
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  value: isChecked,
-                  activeColor: Colors.blueAccent,
-                  dense: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: isChecked ? Colors.blueAccent : Colors.grey.shade800),
-                  ),
-                  tileColor: const Color(0xFF1e1e2d),
-                  onChanged: (bool? value) {
-                    setState(() {
-                      _equipmentChecklist[keyName] = value ?? false;
-                    });
-                    _updateFirebaseData();
-                  },
-                );
-              },
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusButton(String statusKey, String label, Color color) {
+    bool isSelected = _currentStatus == statusKey;
+
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isSelected ? color : color.withOpacity(0.2),
+        side: BorderSide(color: color, width: isSelected ? 2 : 1),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+      onPressed: () {
+        setState(() {
+          _currentStatus = statusKey;
+        });
+        _updateUnitFirebase();
+      },
+      child: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : color,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
         ),
       ),
     );
