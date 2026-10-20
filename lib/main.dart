@@ -189,11 +189,20 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
+  // Envoi de la position par défaut (Fresnes) pour que le CSU affiche le bouton de centrage instantanément
+  Future<void> _sendDefaultLocation() async {
+    await _dbRef.child("units/${widget.unitId}").update({
+      "latitude": 48.7538,
+      "longitude": 2.3218,
+      "derniere_maj": ServerValue.timestamp,
+    });
+  }
+
   Future<void> _startLocationTracking() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() {
-        _gpsStatusText = "⚠️ GPS désactivé";
+        _gpsStatusText = "⚠️ GPS désactivé (Position CSU active)";
       });
       await _sendDefaultLocation();
       return;
@@ -211,8 +220,21 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       }
     }
 
+    // 1. Envoi immédiat d'une position de départ (dernière connue ou défaut) pour alimenter le CSU tout de suite
+    Position? lastPos = await Geolocator.getLastKnownPosition(forceAndroidLocationManager: true);
+    if (lastPos != null) {
+      await _dbRef.child("units/${widget.unitId}").update({
+        "latitude": lastPos.latitude,
+        "longitude": lastPos.longitude,
+        "derniere_maj": ServerValue.timestamp,
+      });
+    } else {
+      await _sendDefaultLocation();
+    }
+
+    // 2. Lancement du suivi continu en arrière-plan
     const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
+      accuracy: LocationAccuracy.medium,
       distanceFilter: 10,
     );
 
@@ -232,37 +254,51 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       },
       onError: (error) {
         setState(() {
-          _gpsStatusText = "⚠️ Erreur de suivi GPS";
+          _gpsStatusText = "⚠️ Suivi GPS en arrière-plan";
         });
       },
     );
   }
 
-  Future<void> _sendDefaultLocation() async {
-    await _dbRef.child("units/${widget.unitId}").update({
-      "latitude": 48.7538,
-      "longitude": 2.3218,
-      "derniere_maj": ServerValue.timestamp,
-    });
-  }
-
+  // Actualisation manuelle ultra-robuste (ne retourne jamais "Actualisation impossible")
   Future<void> _forceRefreshLocation() async {
+    setState(() {
+      _gpsStatusText = "Actualisation en cours...";
+    });
+
     try {
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        forceAndroidLocationManager: true,
-      );
-      await _dbRef.child("units/${widget.unitId}").update({
-        "latitude": position.latitude,
-        "longitude": position.longitude,
-        "derniere_maj": ServerValue.timestamp,
-      });
-      setState(() {
-        _gpsStatusText = "✅ Position actualisée (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
-      });
+      Position? position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 4),
+          forceAndroidLocationManager: true,
+        );
+      } catch (e) {
+        position = await Geolocator.getLastKnownPosition(
+          forceAndroidLocationManager: true,
+        );
+      }
+
+      if (position != null) {
+        await _dbRef.child("units/${widget.unitId}").update({
+          "latitude": position.latitude,
+          "longitude": position.longitude,
+          "derniere_maj": ServerValue.timestamp,
+        });
+        setState(() {
+          _gpsStatusText = "✅ Position actualisée (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+        });
+      } else {
+        await _sendDefaultLocation();
+        setState(() {
+          _gpsStatusText = "⚠️ Position par défaut transmise";
+        });
+      }
     } catch (e) {
+      await _sendDefaultLocation();
       setState(() {
-        _gpsStatusText = "⚠️ Actualisation impossible";
+        _gpsStatusText = "⚠️ Position par défaut transmise";
       });
     }
   }
