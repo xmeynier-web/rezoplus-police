@@ -52,12 +52,14 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   bool _isLocating = false;
   String _gpsStatusText = "Position non transmise";
 
+  // Matériel embarqué (avec Stop-Stick ajouté)
   final Map<String, bool> _equipment = {
     "PVE": true,
     "Radio TLK": true,
     "Kit Secours": false,
     "Gilet Pare-Balles": true,
     "Éthylotest": false,
+    "Stop-Stick": false,
   };
 
   @override
@@ -74,7 +76,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
-  // Fonction GPS ultra-sécurisée contre les blocages Android récents
+  // Fonction GPS sécurisée (contournement services Google récents + fallback)
   Future<void> _shareCurrentLocation() async {
     setState(() {
       _isLocating = true;
@@ -82,7 +84,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
 
     try {
-      // 1. Vérification du service GPS
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
@@ -92,7 +93,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         return;
       }
 
-      // 2. Vérification des permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -116,15 +116,12 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       Position? position;
 
       try {
-        // 3. Tentative d'acquisition directe avec un délai strict de 6 secondes 
-        // et contournement des services Google via forceAndroidLocationManager
         position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
           timeLimit: const Duration(seconds: 6),
           forceAndroidLocationManager: true,
         );
       } catch (e) {
-        // En cas de dépassement (ex: bâtiment fermé), on bascule sur la dernière position connue
         position = await Geolocator.getLastKnownPosition(
           forceAndroidLocationManager: true,
         );
@@ -138,7 +135,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         return;
       }
 
-      // 4. Envoi immédiat des coordonnées vers Firebase
       await _dbRef.child("units/$_unitId").update({
         "latitude": position.latitude,
         "longitude": position.longitude,
@@ -167,6 +163,45 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     }
   }
 
+  // Fonction de déconnexion : Supprime l'unité de Firebase pour qu'elle disparaisse du CSU
+  Future<void> _disconnectUnit() async {
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF2d2d3f),
+          title: const Text("Déconnexion de l'unité"),
+          content: Text("Voulez-vous vraiment déconnecter l'équipage $_unitId ? Il disparaîtra du centre de contrôle."),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text("Annuler", style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text("Déconnecter", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true) {
+      // Suppression du nœud dans Firebase
+      await _dbRef.child("units/$_unitId").remove();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("🔌 Unité $_unitId déconnectée et retirée du CSU"),
+            backgroundColor: Colors.redAccent,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -174,12 +209,21 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         title: Text('REZO+ // ÉQUIPAGE : $_unitId'),
         backgroundColor: _currentStatus == "SOS_ACTIF" ? Colors.red : const Color(0xFF222230),
         centerTitle: true,
+        actions: [
+          // Bouton de déconnexion rapide dans la barre supérieure
+          IconButton(
+            icon: const Icon(Icons.power_settings_new, color: Colors.redAccent),
+            tooltip: "Déconnecter la patrouille",
+            onPressed: _disconnectUnit,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Sélection de l'unité
             Card(
               color: const Color(0xFF2d2d3f),
               child: Padding(
@@ -211,6 +255,8 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               ),
             ),
             const SizedBox(height: 16),
+
+            // Bouton GPS Manuel
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent,
@@ -232,24 +278,31 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
+
             const SizedBox(height: 20),
             const Text("STATUT DE L'ÉQUIPAGE", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange)),
             const SizedBox(height: 8),
+
+            // Grille des Statuts (Harmonisée, avec Contrôle Police Route)
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 _buildStatusButton("EN_PATROUILLE", "Patrouille", Colors.green),
                 _buildStatusButton("EN_INTERVENTION", "Intervention", Colors.orange),
+                _buildStatusButton("CONTROLE_ROUTE", "Contrôle Route", Colors.teal),
                 _buildStatusButton("TRANSPORT", "Transport", Colors.blue),
                 _buildStatusButton("RETOUR_POSTE", "Retour Poste", Colors.purple),
                 _buildStatusButton("HORS_SERVICE", "Hors Service", Colors.grey),
                 _buildStatusButton("SOS_ACTIF", "🚨 SOS DÉTRESSE", Colors.red),
               ],
             ),
+
             const SizedBox(height: 20),
             const Text("MATÉRIEL EMBARQUÉ", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange)),
             const SizedBox(height: 8),
+
+            // Matériel (avec Stop-Stick)
             Card(
               color: const Color(0xFF2d2d3f),
               child: Column(
@@ -267,6 +320,20 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
                   );
                 }).toList(),
               ),
+            ),
+            const SizedBox(height: 20),
+
+            // Bouton de déconnexion explicite en bas de page
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                side: const BorderSide(color: Colors.redAccent),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: _disconnectUnit,
+              icon: const Icon(Icons.logout),
+              label: const Text("DÉCONNECTER ET QUITTER LE CSU", style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
