@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -37,7 +38,7 @@ class PatrouilleApp extends StatelessWidget {
   }
 }
 
-// 1. ÉCRAN DE CONNEXION SIMPLIFIÉ (Sans blocage)
+// 1. ÉCRAN DE PRISE DE SERVICE
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -57,7 +58,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Navigation directe et instantanée vers l'écran principal
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -134,9 +134,9 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   
   String _currentStatus = "EN_PATROUILLE";
-  bool _isLocating = false;
-  String _gpsStatusText = "Appuyez pour actualiser la position";
+  String _gpsStatusText = "Suivi GPS en cours...";
   String? _incomingMission;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   final Map<String, bool> _equipment = {
     "GAIL": true,
@@ -157,7 +157,13 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     super.initState();
     _updateUnitFirebase();
     _listenForMissions();
-    _fetchLocation();
+    _startLocationTracking();
+  }
+
+  @override
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    super.dispose();
   }
 
   void _listenForMissions() {
@@ -165,7 +171,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       final data = event.snapshot.value as Map?;
       if (data != null) {
         setState(() {
-          _incomingMission = "${data['title']} - Lieu : ${data['location']}";
+          _incomingMission = "${data['title']} - Lieu :${data['location']}";
         });
       } else {
         setState(() {
@@ -183,66 +189,54 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
-  Future<void> _fetchLocation() async {
-    setState(() {
-      _isLocating = true;
-      _gpsStatusText = "Recherche de position en cours...";
-    });
+  // Suivi continu des trajets en temps réel (mise à jour dès que l'unité bouge de 10 mètres)
+  Future<void> _startLocationTracking() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _gpsStatusText = "⚠️ GPS désactivé (Position par défaut)";
+      });
+      await _sendDefaultLocation();
+      return;
+    }
 
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
         setState(() {
-          _gpsStatusText = "GPS désactivé. Position par défaut (Fresnes).";
-          _isLocating = false;
+          _gpsStatusText = "❌ Permission GPS refusée";
         });
         await _sendDefaultLocation();
         return;
       }
+    }
 
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() {
-            _gpsStatusText = "Permission refusée. Position par défaut.";
-            _isLocating = false;
-          });
-          await _sendDefaultLocation();
-          return;
-        }
-      }
+    const LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    );
 
-      Position? position;
-      try {
-        position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.low,
-          timeLimit: const Duration(seconds: 4),
-          forceAndroidLocationManager: true,
-        );
-      } catch (e) {
-        position = await Geolocator.getLastKnownPosition(
-          forceAndroidLocationManager: true,
-        );
-      }
-
-      if (position != null) {
-        await _dbRef.child("units/${widget.unitId}").update({
+    _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+      (Position position) {
+        _dbRef.child("units/${widget.unitId}").update({
           "latitude": position.latitude,
           "longitude": position.longitude,
           "derniere_maj": ServerValue.timestamp,
         });
 
+        if (mounted) {
+          setState(() {
+            _gpsStatusText = "📍 Trajet en direct (${position.latitude.toStringAsFixed(4)},${position.longitude.toStringAsFixed(4)})";
+          });
+        }
+      },
+      onError: (error) {
         setState(() {
-          _gpsStatusText = "✅ Position OK (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
-          _isLocating = false;
+          _gpsStatusText = "⚠️ Erreur de suivi GPS";
         });
-      } else {
-        await _sendDefaultLocation();
-      }
-    } catch (e) {
-      await _sendDefaultLocation();
-    }
+      },
+    );
   }
 
   Future<void> _sendDefaultLocation() async {
@@ -251,10 +245,28 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       "longitude": 2.3218,
       "derniere_maj": ServerValue.timestamp,
     });
-    setState(() {
-      _gpsStatusText = "⚠️ Position par défaut (Fresnes) transmise";
-      _isLocating = false;
-    });
+  }
+
+  // Actualisation manuelle immédiate au clic sur l'en-tête
+  Future<void> _forceRefreshLocation() async {
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        forceAndroidLocationManager: true,
+      );
+      await _dbRef.child("units/${widget.unitId}").update({
+        "latitude": position.latitude,
+        "longitude": position.longitude,
+        "derniere_maj": ServerValue.timestamp,
+      });
+      setState(() {
+        _gpsStatusText = "✅ Position actualisée (${position.latitude.toStringAsFixed(4)},${position.longitude.toStringAsFixed(4)})";
+      });
+    } catch (e) {
+      setState(() {
+        _gpsStatusText = "⚠️ Actualisation impossible";
+      });
+    }
   }
 
   Future<void> _disconnectUnit() async {
@@ -338,8 +350,9 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               ),
             ],
 
+            // Bloc cliquable pour forcer le point GPS instantané
             GestureDetector(
-              onTap: _fetchLocation,
+              onTap: _forceRefreshLocation,
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -350,7 +363,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
                 child: Column(
                   children: [
                     const Text(
-                      "STATUT OPÉRATIONNEL ACTUEL (Appuyez pour actualiser GPS)",
+                      "STATUT OPÉRATIONNEL ACTUEL (Appuyez pour actualiser)",
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.bold),
                     ),
@@ -361,122 +374,4 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _gpsStatusText,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 12, color: Colors.yellowAccent),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: () {
-                setState(() {
-                  _currentStatus = "SOS_ACTIF";
-                });
-                _updateUnitFirebase();
-                _fetchLocation();
-              },
-              icon: const Icon(Icons.warning_amber_rounded, size: 28, color: Colors.white),
-              label: const Text(
-                "DÉCLENCHER UN SOS",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            const Text("Modifier le statut :", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
-            const SizedBox(height: 10),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 2.8,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              children: [
-                _buildStatusGridButton("En Patrouille", "EN_PATROUILLE", Colors.green),
-                _buildStatusGridButton("En Intervention", "EN_INTERVENTION", Colors.orange),
-                _buildStatusGridButton("Contrôle PR", "CONTROLE_PR", Colors.teal),
-                _buildStatusGridButton("Transport", "TRANSPORT", Colors.blue),
-                _buildStatusGridButton("Retour au poste", "RETOUR_POSTE", Colors.purple),
-              ],
-            ),
-            const Divider(height: 30, color: Colors.grey),
-
-            const Text("Contrôle du Matériel Embarqué :", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
-            const SizedBox(height: 10),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 2.5,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: _equipment.keys.length,
-              itemBuilder: (context, index) {
-                String keyName = _equipment.keys.elementAt(index);
-                bool isChecked = _equipment[keyName] ?? false;
-
-                return Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2d2d3f),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blueAccent.withOpacity(0.5)),
-                  ),
-                  child: CheckboxListTile(
-                    title: Text(keyName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    value: isChecked,
-                    activeColor: Colors.blueAccent,
-                    controlAffinity: ListTileControlAffinity.trailing,
-                    onChanged: (bool? val) {
-                      setState(() {
-                        _equipment[keyName] = val ?? false;
-                      });
-                      _updateUnitFirebase();
-                    },
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusGridButton(String label, String statusKey, Color color) {
-    bool isSelected = _currentStatus == statusKey;
-
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: isSelected ? const BorderSide(color: Colors.white, width: 2) : BorderSide.none,
-        ),
-      ),
-      onPressed: () {
-        setState(() {
-          _currentStatus = statusKey;
-        });
-        _updateUnitFirebase();
-        _fetchLocation();
-      },
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
-      ),
-    );
-  }
-}
+                      _
