@@ -189,7 +189,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     });
   }
 
-  // Envoi de la position par défaut (Fresnes) pour que le CSU affiche le bouton de centrage instantanément
   Future<void> _sendDefaultLocation() async {
     await _dbRef.child("units/${widget.unitId}").update({
       "latitude": 48.7538,
@@ -220,7 +219,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       }
     }
 
-    // 1. Envoi immédiat d'une position de départ (dernière connue ou défaut) pour alimenter le CSU tout de suite
     Position? lastPos = await Geolocator.getLastKnownPosition(forceAndroidLocationManager: true);
     if (lastPos != null) {
       await _dbRef.child("units/${widget.unitId}").update({
@@ -232,7 +230,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
       await _sendDefaultLocation();
     }
 
-    // 2. Lancement du suivi continu en arrière-plan
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.medium,
       distanceFilter: 10,
@@ -260,7 +257,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     );
   }
 
-  // Actualisation manuelle ultra-robuste (ne retourne jamais "Actualisation impossible")
   Future<void> _forceRefreshLocation() async {
     setState(() {
       _gpsStatusText = "Actualisation en cours...";
@@ -287,7 +283,8 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
           "derniere_maj": ServerValue.timestamp,
         });
         setState(() {
-          _gpsStatusText = "✅ Position actualisée (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+          // Correction ici avec position!
+          _gpsStatusText = "✅ Position actualisée (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
         });
       } else {
         await _sendDefaultLocation();
