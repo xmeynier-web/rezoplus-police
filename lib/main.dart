@@ -32,13 +32,98 @@ class PatrouilleApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF1a1a24),
         primaryColor: Colors.blueAccent,
       ),
-      home: const PatrouilleScreen(),
+      home: const LoginScreen(),
     );
   }
 }
 
+// 1. ÉCRAN DE PRISE DE SERVICE (Saisie de l'indicatif radio)
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _controller = TextEditingController();
+
+  void _startService() {
+    String unitId = _controller.text.trim();
+    if (unitId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Veuillez entrer un indicatif radio valide (ex: ALPHA-1, CS)")),
+      );
+      return;
+    }
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PatrouilleScreen(unitId: unitId),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('REZO+ // Connexion Équipage'),
+        backgroundColor: const Color(0xFF222230),
+        centerTitle: true,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.shield, size: 80, color: Colors.blueAccent),
+            const SizedBox(height: 30),
+            const Text(
+              "Entrez votre indicatif radio :",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 15),
+            TextField(
+              controller: _controller,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: "Ex: ALPHA-1, CS...",
+                hintStyle: const TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: const Color(0xFF2d2d3f),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 25),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                minimumSize: const Size(double.infinity, 50),
+              ),
+              onPressed: _startService,
+              child: const Text(
+                "Démarrer la prise de service",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// 2. ÉCRAN PRINCIPAL DE LA PATROUILLE
 class PatrouilleScreen extends StatefulWidget {
-  const PatrouilleScreen({super.key});
+  final String unitId;
+  const PatrouilleScreen({super.key, required this.unitId});
 
   @override
   State<PatrouilleScreen> createState() => _PatrouilleScreenState();
@@ -47,18 +132,22 @@ class PatrouilleScreen extends StatefulWidget {
 class _PatrouilleScreenState extends State<PatrouilleScreen> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   
-  String _unitId = "ALPHA-1";
   String _currentStatus = "EN_PATROUILLE";
   bool _isLocating = false;
-  String _gpsStatusText = "Position non transmise";
+  String _gpsStatusText = "Acquisition du signal...";
 
-  // Matériel embarqué (avec Stop-Stick ajouté)
+  // Matériel embarqué complet fidèle aux visuels + Stop-Stick
   final Map<String, bool> _equipment = {
-    "PVE": true,
-    "Radio TLK": true,
-    "Kit Secours": false,
-    "Gilet Pare-Balles": true,
-    "Éthylotest": false,
+    "GAIL": true,
+    "LBD": true,
+    "PIE": true,
+    "BTD": true,
+    "PSA": true,
+    "Casque": true,
+    "Trousse PS": true,
+    "Ethylo": true,
+    "Kit Stup": true,
+    "DSA": true,
     "Stop-Stick": false,
   };
 
@@ -66,28 +155,29 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
   void initState() {
     super.initState();
     _updateUnitFirebase();
+    _autoFetchLocation(); // Tente un premier point GPS au démarrage
   }
 
   Future<void> _updateUnitFirebase() async {
-    await _dbRef.child("units/$_unitId").update({
+    await _dbRef.child("units/${widget.unitId}").update({
       "status": _currentStatus,
       "equipment": _equipment,
       "derniere_maj": ServerValue.timestamp,
     });
   }
 
-  // Fonction GPS sécurisée (contournement services Google récents + fallback)
-  Future<void> _shareCurrentLocation() async {
+  // Acquisition GPS sécurisée anti-blocage Android
+  Future<void> _autoFetchLocation() async {
     setState(() {
       _isLocating = true;
-      _gpsStatusText = "Recherche du signal GPS...";
+      _gpsStatusText = "Acquisition du signal...";
     });
 
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         setState(() {
-          _gpsStatusText = "⚠️ Activez le GPS dans les paramètres du téléphone";
+          _gpsStatusText = "GPS désactivé sur l'appareil";
           _isLocating = false;
         });
         return;
@@ -98,23 +188,14 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           setState(() {
-            _gpsStatusText = "❌ Permission GPS refusée par l'utilisateur";
+            _gpsStatusText = "Permission GPS refusée";
             _isLocating = false;
           });
           return;
         }
       }
 
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _gpsStatusText = "❌ GPS bloqué définitivement (voir réglages Android)";
-          _isLocating = false;
-        });
-        return;
-      }
-
       Position? position;
-
       try {
         position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
@@ -127,51 +208,40 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         );
       }
 
-      if (position == null) {
+      if (position != null) {
+        await _dbRef.child("units/${widget.unitId}").update({
+          "latitude": position.latitude,
+          "longitude": position.longitude,
+          "derniere_maj": ServerValue.timestamp,
+        });
+
         setState(() {
-          _gpsStatusText = "⚠️ Signal GPS introuvable (allez près d'une fenêtre)";
+          _gpsStatusText = "GPS : Fixé (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
           _isLocating = false;
         });
-        return;
-      }
-
-      await _dbRef.child("units/$_unitId").update({
-        "latitude": position.latitude,
-        "longitude": position.longitude,
-        "derniere_maj": ServerValue.timestamp,
-      });
-
-      setState(() {
-        _gpsStatusText = "✅ Position transmise (${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
-        _isLocating = false;
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("📍 Position GPS transmise au CSU avec succès !"),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
+      } else {
+        setState(() {
+          _gpsStatusText = "GPS : En attente de signal...";
+          _isLocating = false;
+        });
       }
     } catch (e) {
       setState(() {
-        _gpsStatusText = "⚠️ Erreur technique lors du ciblage GPS";
+        _gpsStatusText = "GPS : Erreur d'acquisition";
         _isLocating = false;
       });
     }
   }
 
-  // Fonction de déconnexion : Supprime l'unité de Firebase pour qu'elle disparaisse du CSU
+  // Déconnexion et suppression propre du CSU
   Future<void> _disconnectUnit() async {
     bool? confirm = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: const Color(0xFF2d2d3f),
-          title: const Text("Déconnexion de l'unité"),
-          content: Text("Voulez-vous vraiment déconnecter l'équipage $_unitId ? Il disparaîtra du centre de contrôle."),
+          title: const Text("Fin de service"),
+          content: Text("Voulez-vous clore le service de l'unité ${widget.unitId} et la retirer du CSU ?"),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -179,7 +249,7 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text("Déconnecter", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              child: const Text("Confirmer", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
             ),
           ],
         );
@@ -187,33 +257,35 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     );
 
     if (confirm == true) {
-      // Suppression du nœud dans Firebase
-      await _dbRef.child("units/$_unitId").remove();
-
+      await _dbRef.child("units/${widget.unitId}").remove();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("🔌 Unité $_unitId déconnectée et retirée du CSU"),
-            backgroundColor: Colors.redAccent,
-            duration: const Duration(seconds: 3),
-          ),
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
     }
+  }
+
+  Color _getStatusBoxColor() {
+    if (_currentStatus == "SOS_ACTIF") return Colors.red;
+    if (_currentStatus == "EN_INTERVENTION") return Colors.orange;
+    if (_currentStatus == "EN_PATROUILLE") return Colors.green;
+    if (_currentStatus == "TRANSPORT") return Colors.blue;
+    if (_currentStatus == "RETOUR_POSTE") return Colors.purple;
+    return Colors.grey;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('REZO+ // ÉQUIPAGE : $_unitId'),
-        backgroundColor: _currentStatus == "SOS_ACTIF" ? Colors.red : const Color(0xFF222230),
-        centerTitle: true,
+        title: Text('Unité : ${widget.unitId}[cite: 1, 2]'),
+        backgroundColor: const Color(0xFF222230),
         actions: [
-          // Bouton de déconnexion rapide dans la barre supérieure
           IconButton(
-            icon: const Icon(Icons.power_settings_new, color: Colors.redAccent),
-            tooltip: "Déconnecter la patrouille",
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            tooltip: "Déconnexion / Fin de service",
             onPressed: _disconnectUnit,
           ),
         ],
@@ -223,145 +295,142 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Sélection de l'unité
-            Card(
-              color: const Color(0xFF2d2d3f),
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Row(
-                  children: [
-                    const Text("Nom de l'équipage : ", style: TextStyle(fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButton<String>(
-                        value: _unitId,
-                        isExpanded: true,
-                        dropdownColor: const Color(0xFF2d2d3f),
-                        items: ["ALPHA-1", "ALPHA-2", "PATROUILLE-VTT", "CANINE-1"]
-                            .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                            .toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() {
-                              _unitId = val;
-                            });
-                            _updateUnitFirebase();
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
+            // 1. STATUT OPÉRATEUR ACTUEL (Fidèle au visuel 1)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _getStatusBoxColor().withOpacity(0.2),
+                border: Border.all(color: _getStatusBoxColor(), width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    "STATUT OPÉRATIONNEL ACTUEL[cite: 1]",
+                    style: TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _currentStatus,
+                    style: TextStyle(fontSize: 22, color: _getStatusBoxColor(), fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _gpsStatusText,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 15),
 
-            // Bouton GPS Manuel
+            // 2. GROS BOUTON SOS (Fidèle au visuel 1)
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                backgroundColor: Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              onPressed: _isLocating ? null : _shareCurrentLocation,
-              icon: _isLocating 
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Icon(Icons.my_location, size: 26),
-              label: Text(
-                _isLocating ? "Acquisition en cours..." : "📍 TRANSMETTRE MA POSITION GPS",
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              onPressed: () {
+                setState(() {
+                  _currentStatus = "SOS_ACTIF";
+                });
+                _updateUnitFirebase();
+                _autoFetchLocation();
+              },
+              icon: const Icon(Icons.warning_amber_rounded, size: 28, color: Colors.white),
+              label: const Text(
+                "DÉCLENCHER UN SOS[cite: 1]",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              _gpsStatusText,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-
             const SizedBox(height: 20),
-            const Text("STATUT DE L'ÉQUIPAGE", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange)),
-            const SizedBox(height: 8),
 
-            // Grille des Statuts (Harmonisée, avec Contrôle Police Route)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            // 3. MODIFIER LE STATUT (Fidèle aux visuels 1 & 2)
+            const Text("Modifier le statut :[cite: 1, 2]", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+            const SizedBox(height: 10),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 2.8,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
               children: [
-                _buildStatusButton("EN_PATROUILLE", "Patrouille", Colors.green),
-                _buildStatusButton("EN_INTERVENTION", "Intervention", Colors.orange),
-                _buildStatusButton("CONTROLE_ROUTE", "Contrôle Route", Colors.teal),
-                _buildStatusButton("TRANSPORT", "Transport", Colors.blue),
-                _buildStatusButton("RETOUR_POSTE", "Retour Poste", Colors.purple),
-                _buildStatusButton("HORS_SERVICE", "Hors Service", Colors.grey),
-                _buildStatusButton("SOS_ACTIF", "🚨 SOS DÉTRESSE", Colors.red),
+                _buildStatusGridButton("En Patrouille", "EN_PATROUILLE", Colors.green),
+                _buildStatusGridButton("En Intervention", "EN_INTERVENTION", Colors.orange),
+                _buildStatusGridButton("Transport", "TRANSPORT", Colors.blue),
+                _buildStatusGridButton("Retour au poste", "RETOUR_POSTE", Colors.purple),
               ],
             ),
+            const Divider(height: 30, color: Colors.grey),
 
-            const SizedBox(height: 20),
-            const Text("MATÉRIEL EMBARQUÉ", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange)),
-            const SizedBox(height: 8),
+            // 4. CONTRÔLE DU MATÉRIEL EMBARQUÉ (Fidèle à la grille des visuels 1 & 2)
+            const Text("Contrôle du Matériel Embarqué :[cite: 1, 2]", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70)),
+            const SizedBox(height: 10),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 2.5,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemCount: _equipment.keys.length,
+              itemBuilder: (context, index) {
+                String keyName = _equipment.keys.elementAt(index);
+                bool isChecked = _equipment[keyName] ?? false;
 
-            // Matériel (avec Stop-Stick)
-            Card(
-              color: const Color(0xFF2d2d3f),
-              child: Column(
-                children: _equipment.keys.map((item) {
-                  return CheckboxListTile(
-                    title: Text(item),
-                    value: _equipment[item],
+                return Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2d2d3f),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blueAccent.withOpacity(0.5)),
+                  ),
+                  child: CheckboxListTile(
+                    title: Text(keyName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    value: isChecked,
                     activeColor: Colors.blueAccent,
+                    controlAffinity: ListTileControlAffinity.trailing,
                     onChanged: (bool? val) {
                       setState(() {
-                        _equipment[item] = val ?? false;
+                        _equipment[keyName] = val ?? false;
                       });
                       _updateUnitFirebase();
                     },
-                  );
-                }).toList(),
-              ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 20),
-
-            // Bouton de déconnexion explicite en bas de page
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.redAccent,
-                side: const BorderSide(color: Colors.redAccent),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: _disconnectUnit,
-              icon: const Icon(Icons.logout),
-              label: const Text("DÉCONNECTER ET QUITTER LE CSU", style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildStatusButton(String statusKey, String label, Color color) {
+  Widget _buildStatusGridButton(String label, String statusKey, Color color) {
     bool isSelected = _currentStatus == statusKey;
 
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? color : color.withOpacity(0.2),
-        side: BorderSide(color: color, width: isSelected ? 2 : 1),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        backgroundColor: color,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: isSelected ? const BorderSide(color: Colors.white, width: 2) : BorderSide.none,
+        ),
       ),
       onPressed: () {
         setState(() {
           _currentStatus = statusKey;
         });
         _updateUnitFirebase();
+        _autoFetchLocation();
       },
       child: Text(
         label,
-        style: TextStyle(
-          color: isSelected ? Colors.white : color,
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
       ),
     );
   }
