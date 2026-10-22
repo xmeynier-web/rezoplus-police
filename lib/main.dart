@@ -38,23 +38,44 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   final TextEditingController _msgController = TextEditingController();
   
   String _unitId = "Patrouille-01";
-  String _currentStatus = "En Patrouille";
-  bool _stopStickEquipped = false;
+  
+  // Liste exacte des statuts opérationnels demandés
+  final List<String> _statusList = [
+    "En Patrouille",
+    "En Intervention",
+    "Contrôle PR",
+    "Transport / Escorte",
+    "Escale Technique",
+    "Retour Poste",
+    "SOS ACTIF"
+  ];
+  
+  late String _currentStatus;
+
+  // Matériel embarqué (géré sous forme de map d'état : armé/présent ou non)
+  final Map<String, bool> _equipment = {
+    "Stop-Stick": false,
+    "BTD": false,
+    "GAIL": false,
+    "LBD": false,
+    "PIE": false,
+    "PSA": false,
+    "Trousse de secours (FAK)": false,
+    "Casque": false,
+    "Bouclier": false,
+    "Éthylotest": false,
+    "Test stupéfiants": false,
+    "DSA": false,
+  };
+
   bool _isOnline = false;
   bool _sosActive = false;
   Position? _currentPosition;
 
-  final List<String> _statusList = [
-    "En Patrouille",
-    "Intervention en cours",
-    "Contrôle Police Route",
-    "Indisponible / En pause",
-    "Retour de Service"
-  ];
-
   @override
   void initState() {
     super.initState();
+    _currentStatus = _statusList[0];
     _initGPS();
   }
 
@@ -85,7 +106,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
   Future<void> _toggleService() async {
     if (_isOnline) {
-      // Demande de confirmation sécurisée avant de quitter le service
       bool confirm = await showDialog<bool>(
         context: context,
         builder: (BuildContext context) {
@@ -111,7 +131,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
     setState(() {
       _isOnline = !_isOnline;
-      if (!_isOnline) _sosActive = false;
+      if (!_isOnline) {
+        _sosActive = false;
+        _currentStatus = _statusList[0];
+      }
     });
 
     if (_isOnline) {
@@ -134,7 +157,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
       "latitude": _currentPosition!.latitude,
       "longitude": _currentPosition!.longitude,
       "status": _currentStatus,
-      "stopStick": _stopStickEquipped,
+      "equipment": _equipment,
       "sos": _sosActive,
       "timestamp": ServerValue.timestamp,
     });
@@ -144,9 +167,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     setState(() {
       _sosActive = !_sosActive;
       if (_sosActive) {
-        _currentStatus = "URGENCE / SOS";
+        _currentStatus = "SOS ACTIF";
       } else {
-        _currentStatus = "En Patrouille";
+        _currentStatus = _statusList[0];
       }
     });
     if (_isOnline) _sendDataToFirebase();
@@ -162,6 +185,48 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     });
 
     _msgController.clear();
+  }
+
+  void _showEquipmentModal() {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setStateModal) {
+            return Container(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Gestion du Matériel Embarqué",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: ListView(
+                      children: _equipment.keys.map((String key) {
+                        return CheckboxListTile(
+                          title: Text(key),
+                          value: _equipment[key],
+                          onChanged: (bool? value) {
+                            setStateModal(() {
+                              _equipment[key] = value ?? false;
+                            });
+                            setState(() {}); // Met à jour l'écran principal
+                            if (_isOnline) _sendDataToFirebase();
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -234,6 +299,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                   if (_isOnline) _sendDataToFirebase();
                 }
               },
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _showEquipmentModal,
+              icon: const Icon(Icons.backpack),
+              label: const Text("Gérer le Matériel Embarqué"),
             ),
             const SizedBox(height: 10),
             Expanded(
