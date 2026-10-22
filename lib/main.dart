@@ -6,7 +6,7 @@ import 'package:geolocator/geolocator.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialisation non bloquante pour éliminer tout blocage sur l'écran de splash
+  // Initialisation non bloquante pour garantir un démarrage instantané
   Firebase.initializeApp().catchError((error) {
     debugPrint("Erreur init Firebase : $error");
   });
@@ -81,10 +81,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   void initState() {
     super.initState();
     _currentStatus = _statusList[0];
-    _initGPS();
+    _initGPSStream();
   }
 
-  Future<void> _initGPS() async {
+  Future<void> _initGPSStream() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
@@ -144,6 +144,16 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     });
 
     if (_isOnline) {
+      // Vérification immédiate d'une position GPS au démarrage du service
+      try {
+        Position pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        setState(() {
+          _currentPosition = pos;
+        });
+      } catch (_) {}
+
       _sendDataToFirebase();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -175,7 +185,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         "timestamp": ServerValue.timestamp,
       });
     } catch (e) {
-      debugPrint("Erreur Firebase set : $e");
+      debugPrint("Erreur synchronisation Firebase : $e");
     }
   }
 
@@ -201,7 +211,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         "timestamp": ServerValue.timestamp,
       });
     } catch (e) {
-      debugPrint("Erreur message : $e");
+      debugPrint("Erreur envoi message : $e");
     }
 
     _msgController.clear();
