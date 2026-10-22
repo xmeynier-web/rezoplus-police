@@ -32,7 +32,7 @@ class RezoPlusApp extends StatelessWidget {
   }
 }
 
-/// Écran d'amorçage : initialise Firebase via vos options explicites puis affiche l'écran principal.
+/// Écran d'amorçage : initialise Firebase via vos options explicites
 class BootScreen extends StatefulWidget {
   const BootScreen({super.key});
 
@@ -53,7 +53,7 @@ class _BootScreenState extends State<BootScreen> {
     await Firebase.initializeApp(
       options: const FirebaseOptions(
         apiKey: "AIzaSyCu0BK4h2hhaGV4C46C9y65rBJlnLftq3A",
-        appId: "1:561209004165:web:4c19c7b505bf7", // (Assurez-vous que l'appId est complet si besoin)
+        appId: "1:561209004165:web:4c19c7b505bf7",
         messagingSenderId: "561209004165",
         projectId: "rezoplus-police",
         databaseURL: "https://rezoplus-police-default-rtdb.europe-west1.firebasedatabase.app",
@@ -107,17 +107,88 @@ class _BootScreenState extends State<BootScreen> {
             ),
           );
         }
-        return const PatrouilleHomePage();
+        // Étape intermédiaire d'identification radio comme sur vos maquettes
+        return const LoginScreen();
       },
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// ÉCRAN PRINCIPAL
+// ÉCRAN DE CONNEXION / INDICATIF RADIO
+// ---------------------------------------------------------------------------
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _controller = TextEditingController(text: 'Patrouille-01');
+
+  void _startService() {
+    final unitId = _controller.text.trim();
+    if (unitId.isEmpty) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => PatrouilleHomePage(unitId: unitId)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('REZO+ // Connexion Équipement'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.shield, size: 80, color: Colors.blue),
+            const SizedBox(height: 24),
+            const Text(
+              'Entrez votre indicatif radio :',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              decoration: const InputDecoration(
+                hintText: 'Ex: ALPHA-1, Patrouille-01...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                onPressed: _startService,
+                child: const Text(
+                  'Démarrer la prise de service',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ÉCRAN PRINCIPAL (Style Ancien Modèle Harmonisé & Pratique)
 // ---------------------------------------------------------------------------
 class PatrouilleHomePage extends StatefulWidget {
-  const PatrouilleHomePage({super.key});
+  final String unitId;
+  const PatrouilleHomePage({super.key, required this.unitId});
 
   @override
   State<PatrouilleHomePage> createState() => _PatrouilleHomePageState();
@@ -128,35 +199,33 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   final TextEditingController _msgController = TextEditingController();
   StreamSubscription<Position>? _gpsSub;
 
-  final String _unitId = 'Patrouille-01';
-
-  static const List<String> _statusList = [
+  // 5 Statuts principaux visibles directement en boutons rapides (style ancien modèle)
+  final List<String> _statusList = [
     'En Patrouille',
     'En Intervention',
     'Contrôle PR',
-    'Transport / Escorte',
-    'Escale Technique',
-    'Retour Poste',
+    'Transport',
+    'Retour au poste',
     'SOS ACTIF',
   ];
+
   late String _currentStatus = _statusList[0];
 
+  // Matériel embarqué (Grille compacte comme sur vos captures d'écran)
   final Map<String, bool> _equipment = {
-    'Stop-Stick': false,
-    'BTD': false,
     'GAIL': false,
     'LBD': false,
     'PIE': false,
+    'BTD': false,
     'PSA': false,
-    'Trousse de secours (FAK)': false,
     'Casque': false,
-    'Bouclier': false,
-    'Éthylotest': false,
-    'Test stupéfiants': false,
+    'Trousse PS': false,
+    'Ethylo': false,
+    'Kit Stup': false,
     'DSA': false,
   };
 
-  bool _isOnline = false;
+  bool _isOnline = true; // Directement en ligne après connexion indicatif
   bool _sosActive = false;
   Position? _currentPosition;
   String _gpsMessage = 'Recherche du signal GPS...';
@@ -164,7 +233,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initGPS());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initGPS();
+      _sendDataToFirebase(); // Prise de service auto au chargement
+    });
   }
 
   @override
@@ -191,8 +263,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         return;
       }
 
-      final LocationSettings settings = defaultTargetPlatform ==
-              TargetPlatform.android
+      final LocationSettings settings = defaultTargetPlatform == TargetPlatform.android
           ? AndroidSettings(
               accuracy: LocationAccuracy.high,
               distanceFilter: 10,
@@ -202,8 +273,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                 enableWakeLock: true,
               ),
             )
-          : const LocationSettings(
-              accuracy: LocationAccuracy.high, distanceFilter: 10);
+          : const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10);
 
       _gpsSub = Geolocator.getPositionStream(locationSettings: settings).listen(
         (position) {
@@ -224,11 +294,17 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
   // --------------------------- FIREBASE ------------------------------------
   Future<void> _sendDataToFirebase() async {
-    if (_currentPosition == null) return;
+    if (_currentPosition == null && _isOnline) {
+      // Tente d'obtenir une position immédiate si possible
+      try {
+        _currentPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      } catch (_) {}
+    }
+
     try {
-      await _dbRef.child('units/$_unitId').set({
-        'latitude': _currentPosition!.latitude,
-        'longitude': _currentPosition!.longitude,
+      await _dbRef.child('units/${widget.unitId}').set({
+        'latitude': _currentPosition?.latitude ?? 0.0,
+        'longitude': _currentPosition?.longitude ?? 0.0,
         'status': _currentStatus,
         'equipment': _equipment,
         'sos': _sosActive,
@@ -239,52 +315,51 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     }
   }
 
-  Future<void> _toggleService() async {
-    if (_isOnline) {
-      final ok = await _confirm('Fin de service',
-          'Voulez-vous vraiment quitter le service ?');
-      if (!ok) return;
-    }
+  Future<void> _changeStatus(String newStatus) async {
     setState(() {
-      _isOnline = !_isOnline;
-      if (!_isOnline) {
-        _sosActive = false;
-        _currentStatus = _statusList[0];
-      }
+      _currentStatus = newStatus;
+      _sosActive = (newStatus == 'SOS ACTIF');
     });
-    if (_isOnline) {
-      await _sendDataToFirebase();
-      _snack('Prise de service enregistrée auprès du CSU.');
+    await _sendDataToFirebase();
+    if (_sosActive) {
+      _snack('ALERTE SOS DÉCLENCHÉE !');
     } else {
-      try {
-        await _dbRef.child('units/$_unitId').remove();
-      } catch (e) {
-        debugPrint('Erreur fin de service : $e');
-      }
-      _snack('Fin de service. Unité déconnectée.');
+      _snack('Statut mis à jour : $newStatus');
     }
   }
 
-  Future<void> _triggerSOS() async {
-    if (!_sosActive) {
-      final ok = await _confirm('SOS détresse',
-          'Déclencher l\'alerte SOS vers le CSU ?');
-      if (!ok) return;
+  Future<void> _toggleService() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Déconnexion'),
+        content: const Text('Voulez-vous vraiment quitter le service ?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirmer')),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      try {
+        await _dbRef.child('units/${widget.unitId}').remove();
+      } catch (_) {}
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
     }
-    setState(() {
-      _sosActive = !_sosActive;
-      _currentStatus = _sosActive ? 'SOS ACTIF' : _statusList[0];
-    });
-    if (_isOnline) _sendDataToFirebase();
   }
 
   Future<void> _sendMessage() async {
     final text = _msgController.text.trim();
-    if (text.isEmpty || !_isOnline) return;
+    if (text.isEmpty) return;
     _msgController.clear();
     try {
       await _dbRef.child('messages').push().set({
-        'sender': _unitId,
+        'sender': widget.unitId,
         'text': text,
         'timestamp': ServerValue.timestamp,
       });
@@ -293,110 +368,107 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     }
   }
 
-  // ------------------------------ UI ---------------------------------------
-  Future<bool> _confirm(String title, String content) async {
-    final res = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Confirmer')),
-        ],
-      ),
-    );
-    return res ?? false;
-  }
-
   void _snack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
   }
 
-  void _showEquipmentModal() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setStateModal) => Container(
-          padding: const EdgeInsets.all(16),
-          height: 400,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Gestion du Matériel Embarqué',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Divider(),
-              Expanded(
-                child: ListView(
-                  children: _equipment.keys.map((key) {
-                    return CheckboxListTile(
-                      title: Text(key),
-                      value: _equipment[key],
-                      onChanged: (v) {
-                        setStateModal(() => _equipment[key] = v ?? false);
-                        setState(() {});
-                        if (_isOnline) _sendDataToFirebase();
-                      },
-                    );
-                  }).toList(),
-                ),
-              ),
-            ],
-          ),
-        ),
+  // ------------------------------ UI ---------------------------------------
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'En Patrouille':
+        return Colors.green.shade700;
+      case 'En Intervention':
+        return Colors.orange.shade800;
+      case 'Contrôle PR':
+        return Colors.teal.shade700;
+      case 'Transport':
+        return Colors.blue.shade700;
+      case 'Retour au poste':
+        return Colors.purple.shade700;
+      case 'SOS ACTIF':
+        return Colors.red.shade900;
+      default:
+        return Colors.grey.shade700;
+    }
+  }
+
+  Widget _buildMessagesBox() {
+    return Container(
+      height: 130,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[700]!),
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.black26,
       ),
-    );
-  }
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            color: Colors.grey[850],
+            width: double.infinity,
+            child: const Text('Messagerie CSU Directe', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          Expanded(
+            child: StreamBuilder<DatabaseEvent>(
+              stream: _dbRef.child('messages').limitToLast(10).onValue,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) return const Center(child: Text('Erreur messagerie', style: TextStyle(fontSize: 11)));
+                final raw = snapshot.data?.snapshot.value;
+                if (raw == null) return const Center(child: Text('Aucun message', style: TextStyle(fontSize: 11)));
 
-  Widget _buildMessages() {
-    return StreamBuilder<DatabaseEvent>(
-      stream: _dbRef.child('messages').limitToLast(20).onValue,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Center(child: Text('Messagerie indisponible'));
-        }
-        final raw = snapshot.data?.snapshot.value;
-        if (raw == null) return const Center(child: Text('Aucun message'));
+                final List<Map<dynamic, dynamic>> msgs = [];
+                if (raw is Map) {
+                  for (final v in raw.values) {
+                    if (v is Map) msgs.add(v);
+                  }
+                } else if (raw is List) {
+                  for (final v in raw) {
+                    if (v is Map) msgs.add(v);
+                  }
+                }
+                msgs.sort((a, b) => ((a['timestamp'] ?? 0) as num).compareTo((b['timestamp'] ?? 0) as num));
 
-        final List<Map<dynamic, dynamic>> msgs = [];
-        if (raw is Map) {
-          for (final v in raw.values) {
-            if (v is Map) msgs.add(v);
-          }
-        } else if (raw is List) {
-          for (final v in raw) {
-            if (v is Map) msgs.add(v);
-          }
-        }
-        msgs.sort((a, b) => ((a['timestamp'] ?? 0) as num)
-            .compareTo((b['timestamp'] ?? 0) as num));
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(8),
-          itemCount: msgs.length,
-          itemBuilder: (context, i) {
-            final msg = msgs[i];
-            final isMe = msg['sender'] == _unitId;
-            return Align(
-              alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: isMe ? Colors.blue[800] : Colors.grey[700],
-                  borderRadius: BorderRadius.circular(6),
+                return ListView.builder(
+                  padding: const EdgeInsets.all(4),
+                  itemCount: msgs.length,
+                  itemBuilder: (context, i) {
+                    final msg = msgs[i];
+                    final isMe = msg['sender'] == widget.unitId;
+                    return Text(
+                      '${msg['sender']}: ${msg['text']}',
+                      style: TextStyle(fontSize: 12, color: isMe ? Colors.blueAccent : Colors.white70),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(4.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _msgController,
+                    style: const TextStyle(fontSize: 12),
+                    decoration: const InputDecoration(
+                      hintText: 'Message au CSU...',
+                      isDense: true,
+                      contentPadding: EdgeInsets.all(8),
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
                 ),
-                child: Text('${msg['sender']}: ${msg['text']}'),
-              ),
-            );
-          },
-        );
-      },
+                IconButton(
+                  icon: const Icon(Icons.send, size: 18, color: Colors.blue),
+                  onPressed: _sendMessage,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -405,135 +477,122 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     final pos = _currentPosition;
     return Scaffold(
       appBar: AppBar(
-        title: Text('Rezo+ : $_unitId'),
+        title: Text('Unité : ${widget.unitId}'),
         backgroundColor: _sosActive ? Colors.red[900] : null,
         actions: [
           IconButton(
-            icon: Icon(Icons.circle,
-                color: _isOnline ? Colors.green : Colors.red),
+            icon: const Icon(Icons.logout),
             onPressed: _toggleService,
-            tooltip: _isOnline ? 'Fin de service' : 'Prise de service',
+            tooltip: 'Déconnexion',
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 1. Bouton SOS d'urgence visible immédiatement en haut
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    _sosActive ? Colors.orange[800] : Colors.red[700],
-                padding: const EdgeInsets.symmetric(vertical: 18),
-              ),
-              onPressed: _isOnline ? _triggerSOS : null,
-              icon: const Icon(Icons.warning, size: 30, color: Colors.white),
-              label: Text(
-                _sosActive ? 'DÉSACTIVER ALERTE SOS' : 'DÉCLENCHER SOS DÉTRESSE',
-                style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white),
-              ),
-            ),
-            const SizedBox(height: 15),
-            Card(
-              color: _isOnline ? Colors.grey[900] : Colors.black26,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    Text(
-                      _isOnline ? 'STATUT : EN LIGNE' : 'STATUT : HORS LIGNE',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _isOnline ? Colors.greenAccent : Colors.redAccent,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(pos != null
-                        ? 'GPS fixé (${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)})'
-                        : _gpsMessage),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 15),
-            DropdownButton<String>(
-              value: _currentStatus,
-              isExpanded: true,
-              items: _statusList
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                  .toList(),
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() {
-                  _currentStatus = v;
-                  _sosActive = v == 'SOS ACTIF';
-                });
-                if (_isOnline) _sendDataToFirebase();
-              },
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _showEquipmentModal,
-              icon: const Icon(Icons.backpack),
-              label: const Text('Gérer le Matériel Embarqué'),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[700]!),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      color: Colors.grey[850],
-                      width: double.infinity,
-                      child: const Text('Messagerie CSU Directe',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                    Expanded(child: _buildMessages()),
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _msgController,
-                              decoration: const InputDecoration(
-                                hintText: 'Envoyer un message au CSU...',
-                                isDense: true,
-                              ),
-                              onSubmitted: (_) => _sendMessage(),
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.send, color: Colors.blue),
-                            onPressed: _sendMessage,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isOnline ? Colors.grey[800] : Colors.green,
+                backgroundColor: _sosActive ? Colors.orange[800] : Colors.red,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
-              onPressed: _toggleService,
-              icon: Icon(_isOnline ? Icons.logout : Icons.login),
-              label: Text(_isOnline ? 'FIN DE SERVICE' : 'PRISE DE SERVICE'),
+              onPressed: () => _changeStatus(_sosActive ? 'En Patrouille' : 'SOS ACTIF'),
+              icon: const Icon(Icons.warning, size: 24, color: Colors.white),
+              label: Text(
+                _sosActive ? 'DÉSACTIVER L\'ALERTE SOS' : 'DÉCLENCHER UN SOS',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
             ),
+            const SizedBox(height: 10),
+
+            // 2. Statut actuel & GPS
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _getStatusColor(_currentStatus),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Column(
+                children: [
+                  const Text('STATUT OPÉRATIONNEL ACTUEL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
+                  const SizedBox(height: 4),
+                  Text(_currentStatus.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 4),
+                  Text(
+                    pos != null ? 'GPS : ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}' : _gpsMessage,
+                    style: const TextStyle(fontSize: 11, color: Colors.white60),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 3. Grille des boutons de statuts rapides (Style ancien modèle)
+            const Text('Modifier le statut :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 2.8,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              children: _statusList.where((s) => s != 'SOS ACTIF').map((status) {
+                return ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _getStatusColor(status),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => _changeStatus(status),
+                  child: Text(
+                    status,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }).toList(),
+            ),
+            const Divider(height: 24),
+
+            // 4. Contrôle du Matériel Embarqué (Grille compacte 2 colonnes avec Checkbox)
+            const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 3.2,
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 6,
+              children: _equipment.keys.map((item) {
+                return Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.blue.withOpacity(0.4)),
+                    borderRadius: BorderRadius.circular(6),
+                    color: Colors.black12,
+                  ),
+                  child: CheckboxListTile(
+                    title: Text(item, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    value: _equipment[item],
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    onChanged: (val) {
+                      setState(() {
+                        _equipment[item] = val ?? false;
+                      });
+                      _sendDataToFirebase();
+                    },
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+
+            // 5. Messagerie CSU Directe en bas
+            _buildMessagesBox(),
           ],
         ),
       ),
