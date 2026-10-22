@@ -1,7 +1,6 @@
-// android/app/build.gradle — Application Rezo+ Patrouille
-
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
+
 if (localPropertiesFile.exists()) {
     localPropertiesFile.withReader('UTF-8') { reader ->
         localProperties.load(reader)
@@ -25,7 +24,8 @@ apply plugin: 'com.google.gms.google-services'
 
 android {
     namespace "com.rezoplus.rezoplus_terrain"
-    compileSdkVersion 34
+
+    compileSdkVersion 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -38,23 +38,41 @@ android {
 
     defaultConfig {
         applicationId "com.rezoplus.rezoplus_terrain"
-        minSdkVersion 21
-        targetSdkVersion 34
+
+        minSdkVersion 24
+        targetSdkVersion 36
+
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+
+        multiDexEnabled true
     }
 
     buildTypes {
+        debug {
+            minifyEnabled false
+        }
+
         release {
-            // NOTE : pour un build de production signé, remplacer par une
-            // config de signature release et activer minifyEnabled/shrinkResources.
             signingConfig signingConfigs.debug
+
             minifyEnabled false
             shrinkResources false
+
+            proguardFiles getDefaultProguardFile(
+                    'proguard-android-optimize.txt'
+            ),
+            'proguard-rules.pro'
         }
     }
 }
 
 flutter {
     source '../..'
+}
+
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:33.5.1')
+
+    implementation 'androidx.multidex:multidex:2.0.1'
 }
