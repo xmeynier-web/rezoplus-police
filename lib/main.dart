@@ -5,25 +5,20 @@ import 'package:geolocator/geolocator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialisation non bloquante pour garantir un démarrage instantané
-  Firebase.initializeApp().catchError((error) {
-    debugPrint("Erreur init Firebase : $error");
-  });
-
-  runApp(const RezoPlusPatrouilleApp());
+  await Firebase.initializeApp();
+  runApp(const RezoPlusApp());
 }
 
-class RezoPlusPatrouilleApp extends StatelessWidget {
-  const RezoPlusPatrouilleApp({Key? key}) : super(key: key);
+class RezoPlusApp extends StatelessWidget {
+  const RezoPlusApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Rezo+ Patrouille',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
         brightness: Brightness.dark,
+        primarySwatch: Colors.blue,
       ),
       home: const PatrouilleHomePage(),
       debugShowCheckedModeBanner: false,
@@ -41,10 +36,10 @@ class PatrouilleHomePage extends StatefulWidget {
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final TextEditingController _msgController = TextEditingController();
-  
+
   final String _unitId = "Patrouille-01";
-  
-  // Les 7 statuts opérationnels stricts
+
+  // Les 7 statuts opérationnels
   final List<String> _statusList = [
     "En Patrouille",
     "En Intervention",
@@ -54,10 +49,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     "Retour Poste",
     "SOS ACTIF"
   ];
-  
+
   late String _currentStatus;
 
-  // Liste complète du matériel embarqué (12 items)
+  // 12 équipements embarqués
   final Map<String, bool> _equipment = {
     "Stop-Stick": false,
     "BTD": false,
@@ -81,10 +76,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   void initState() {
     super.initState();
     _currentStatus = _statusList[0];
-    _initGPSStream();
+    _initGPS();
   }
 
-  Future<void> _initGPSStream() async {
+  Future<void> _initGPS() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
@@ -100,7 +95,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         distanceFilter: 10,
       ),
     ).listen((Position position) {
-      if (!mounted) return;
       setState(() {
         _currentPosition = position;
       });
@@ -110,110 +104,46 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     });
   }
 
-  Future<void> _toggleService() async {
-    if (_isOnline) {
-      bool confirm = await showDialog<bool>(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Confirmation'),
-            content: const Text('Voulez-vous vraiment quitter le service ?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Annuler'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Confirmer'),
-              ),
-            ],
-          );
-        },
-      ) ?? false;
-
-      if (!confirm) return;
-    }
-
+  void _toggleService() {
     setState(() {
       _isOnline = !_isOnline;
       if (!_isOnline) {
         _sosActive = false;
         _currentStatus = _statusList[0];
+        _dbRef.child("units/$_unitId").remove();
+      } else {
+        _sendDataToFirebase();
       }
     });
-
-    if (_isOnline) {
-      // Vérification immédiate d'une position GPS au démarrage du service
-      try {
-        Position pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
-        setState(() {
-          _currentPosition = pos;
-        });
-      } catch (_) {}
-
-      _sendDataToFirebase();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Prise de service enregistrée auprès du CSU.")),
-        );
-      }
-    } else {
-      try {
-        await _dbRef.child("units/$_unitId").remove();
-      } catch (_) {}
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Fin de service. Unité déconnectée.")),
-        );
-      }
-    }
   }
 
   void _sendDataToFirebase() {
     if (_currentPosition == null) return;
-
-    try {
-      _dbRef.child("units/$_unitId").set({
-        "latitude": _currentPosition!.latitude,
-        "longitude": _currentPosition!.longitude,
-        "status": _currentStatus,
-        "equipment": _equipment,
-        "sos": _sosActive,
-        "timestamp": ServerValue.timestamp,
-      });
-    } catch (e) {
-      debugPrint("Erreur synchronisation Firebase : $e");
-    }
+    _dbRef.child("units/$_unitId").set({
+      "latitude": _currentPosition!.latitude,
+      "longitude": _currentPosition!.longitude,
+      "status": _currentStatus,
+      "equipment": _equipment,
+      "sos": _sosActive,
+      "timestamp": ServerValue.timestamp,
+    });
   }
 
   void _triggerSOS() {
     setState(() {
       _sosActive = !_sosActive;
-      if (_sosActive) {
-        _currentStatus = "SOS ACTIF";
-      } else {
-        _currentStatus = _statusList[0];
-      }
+      _currentStatus = _sosActive ? "SOS ACTIF" : _statusList[0];
     });
     if (_isOnline) _sendDataToFirebase();
   }
 
   void _sendMessage() {
     if (_msgController.text.trim().isEmpty || !_isOnline) return;
-
-    try {
-      _dbRef.child("messages").push().set({
-        "sender": _unitId,
-        "text": _msgController.text.trim(),
-        "timestamp": ServerValue.timestamp,
-      });
-    } catch (e) {
-      debugPrint("Erreur envoi message : $e");
-    }
-
+    _dbRef.child("messages").push().set({
+      "sender": _unitId,
+      "text": _msgController.text.trim(),
+      "timestamp": ServerValue.timestamp,
+    });
     _msgController.clear();
   }
 
@@ -359,11 +289,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                           if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
                             return const Center(child: Text("Aucun message"));
                           }
-                          Object? rawValue = snapshot.data!.snapshot.value;
-                          if (rawValue is! Map) {
-                            return const Center(child: Text("Chargement..."));
-                          }
-                          Map<dynamic, dynamic> map = rawValue;
+                          Map<dynamic, dynamic> map = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
                           List<MapEntry<dynamic, dynamic>> entries = map.entries.toList()
                             ..sort((a, b) => (a.value['timestamp'] ?? 0).compareTo(b.value['timestamp'] ?? 0));
 
