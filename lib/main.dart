@@ -82,7 +82,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     _selectedStatus = _statuses[0];
   }
 
-  // Synchronisation Firebase propre
   void _syncData() {
     if (!_isOnline) return;
     try {
@@ -99,10 +98,8 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
     }
   }
 
-  // Gestion du service et du GPS
   Future<void> _toggleService() async {
     if (_isOnline) {
-      // Fin de service
       setState(() {
         _isOnline = false;
         _sosActive = false;
@@ -117,7 +114,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         );
       }
     } else {
-      // Prise de service
       bool serviceOk = await Geolocator.isLocationServiceEnabled();
       if (!serviceOk && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -235,7 +231,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Bouton SOS d'urgence
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: _sosActive ? Colors.orange[800] : Colors.red[700],
@@ -249,8 +244,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               ),
             ),
             const SizedBox(height: 10),
-
-            // Statut et GPS Card
             Card(
               color: Colors.grey[900],
               child: Padding(
@@ -276,8 +269,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               ),
             ),
             const SizedBox(height: 10),
-
-            // Sélecteur de statut opérationnel
             DropdownButtonFormField<String>(
               value: _selectedStatus,
               dropdownColor: Colors.grey[900],
@@ -296,8 +287,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               },
             ),
             const SizedBox(height: 10),
-
-            // Bouton Matériel
             OutlinedButton.icon(
               style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
               onPressed: _openGearModal,
@@ -305,8 +294,6 @@ class _PatrouilleScreenState extends State<PatrouilleScreen> {
               label: const Text("Gérer le Matériel Embarqué"),
             ),
             const SizedBox(height: 10),
-
-            // Messagerie CSU Directe
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
