@@ -107,7 +107,6 @@ class _BootScreenState extends State<BootScreen> {
             ),
           );
         }
-        // Étape intermédiaire d'identification radio comme sur vos maquettes
         return const LoginScreen();
       },
     );
@@ -184,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// ÉCRAN PRINCIPAL (Style Ancien Modèle Harmonisé & Pratique)
+// ÉCRAN PRINCIPAL
 // ---------------------------------------------------------------------------
 class PatrouilleHomePage extends StatefulWidget {
   final String unitId;
@@ -196,23 +195,23 @@ class PatrouilleHomePage extends StatefulWidget {
 
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
-  final TextEditingController _msgController = TextEditingController();
   StreamSubscription<Position>? _gpsSub;
 
-  // 5 Statuts principaux visibles directement en boutons rapides (style ancien modèle)
   final List<String> _statusList = [
     'En Patrouille',
     'En Intervention',
     'Contrôle PR',
     'Transport',
     'Retour au poste',
+    'Indisponible',
     'SOS ACTIF',
   ];
 
   late String _currentStatus = _statusList[0];
 
-  // Matériel embarqué (Grille compacte comme sur vos captures d'écran)
   final Map<String, bool> _equipment = {
+    'Stop-Stick': false,
+    'Bouclier': false,
     'GAIL': false,
     'LBD': false,
     'PIE': false,
@@ -225,7 +224,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     'DSA': false,
   };
 
-  bool _isOnline = true; // Directement en ligne après connexion indicatif
+  bool _isOnline = true;
   bool _sosActive = false;
   Position? _currentPosition;
   String _gpsMessage = 'Recherche du signal GPS...';
@@ -235,14 +234,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initGPS();
-      _sendDataToFirebase(); // Prise de service auto au chargement
+      _sendDataToFirebase();
     });
   }
 
   @override
   void dispose() {
     _gpsSub?.cancel();
-    _msgController.dispose();
     super.dispose();
   }
 
@@ -293,9 +291,30 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   }
 
   // --------------------------- FIREBASE ------------------------------------
+  
+  String _getStatusColorHex(String status) {
+    switch (status) {
+      case 'En Patrouille':
+        return '#22bb33';
+      case 'En Intervention':
+        return '#ff8800';
+      case 'Contrôle PR':
+        return '#009688';
+      case 'Transport':
+        return '#00a8ff';
+      case 'Retour au poste':
+        return '#9c27b0';
+      case 'Indisponible':
+        return '#777777';
+      case 'SOS ACTIF':
+        return '#ff2222';
+      default:
+        return '#777777';
+    }
+  }
+
   Future<void> _sendDataToFirebase() async {
     if (_currentPosition == null && _isOnline) {
-      // Tente d'obtenir une position immédiate si possible
       try {
         _currentPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       } catch (_) {}
@@ -306,6 +325,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         'latitude': _currentPosition?.latitude ?? 0.0,
         'longitude': _currentPosition?.longitude ?? 0.0,
         'status': _currentStatus,
+        'statusColor': _getStatusColorHex(_currentStatus),
         'equipment': _equipment,
         'sos': _sosActive,
         'timestamp': ServerValue.timestamp,
@@ -353,21 +373,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     }
   }
 
-  Future<void> _sendMessage() async {
-    final text = _msgController.text.trim();
-    if (text.isEmpty) return;
-    _msgController.clear();
-    try {
-      await _dbRef.child('messages').push().set({
-        'sender': widget.unitId,
-        'text': text,
-        'timestamp': ServerValue.timestamp,
-      });
-    } catch (e) {
-      debugPrint('Erreur envoi message : $e');
-    }
-  }
-
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
@@ -386,90 +391,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         return Colors.blue.shade700;
       case 'Retour au poste':
         return Colors.purple.shade700;
+      case 'Indisponible':
+        return Colors.grey.shade800;
       case 'SOS ACTIF':
         return Colors.red.shade900;
       default:
         return Colors.grey.shade700;
     }
-  }
-
-  Widget _buildMessagesBox() {
-    return Container(
-      height: 130,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey[700]!),
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.black26,
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            color: Colors.grey[850],
-            width: double.infinity,
-            child: const Text('Messagerie CSU Directe', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-          ),
-          Expanded(
-            child: StreamBuilder<DatabaseEvent>(
-              stream: _dbRef.child('messages').limitToLast(10).onValue,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) return const Center(child: Text('Erreur messagerie', style: TextStyle(fontSize: 11)));
-                final raw = snapshot.data?.snapshot.value;
-                if (raw == null) return const Center(child: Text('Aucun message', style: TextStyle(fontSize: 11)));
-
-                final List<Map<dynamic, dynamic>> msgs = [];
-                if (raw is Map) {
-                  for (final v in raw.values) {
-                    if (v is Map) msgs.add(v);
-                  }
-                } else if (raw is List) {
-                  for (final v in raw) {
-                    if (v is Map) msgs.add(v);
-                  }
-                }
-                msgs.sort((a, b) => ((a['timestamp'] ?? 0) as num).compareTo((b['timestamp'] ?? 0) as num));
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(4),
-                  itemCount: msgs.length,
-                  itemBuilder: (context, i) {
-                    final msg = msgs[i];
-                    final isMe = msg['sender'] == widget.unitId;
-                    return Text(
-                      '${msg['sender']}: ${msg['text']}',
-                      style: TextStyle(fontSize: 12, color: isMe ? Colors.blueAccent : Colors.white70),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(4.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _msgController,
-                    style: const TextStyle(fontSize: 12),
-                    decoration: const InputDecoration(
-                      hintText: 'Message au CSU...',
-                      isDense: true,
-                      contentPadding: EdgeInsets.all(8),
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send, size: 18, color: Colors.blue),
-                  onPressed: _sendMessage,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -530,7 +458,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
             ),
             const SizedBox(height: 12),
 
-            // 3. Grille des boutons de statuts rapides (Style ancien modèle)
+            // 3. Grille des boutons de statuts rapides
             const Text('Modifier le statut :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             GridView.count(
@@ -557,7 +485,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
             ),
             const Divider(height: 24),
 
-            // 4. Contrôle du Matériel Embarqué (Grille compacte 2 colonnes avec Checkbox)
+            // 4. Contrôle du Matériel Embarqué
             const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             GridView.count(
@@ -589,10 +517,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                 );
               }).toList(),
             ),
-            const SizedBox(height: 12),
-
-            // 5. Messagerie CSU Directe en bas
-            _buildMessagesBox(),
           ],
         ),
       ),
