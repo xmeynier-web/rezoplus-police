@@ -1,9 +1,4 @@
 // android/app/build.gradle — Application Rezo+ Patrouille
-// Version corrigée :
-//  - minifyEnabled (et non "minFlyEnabled")
-//  - flutter { source '../..' } (et non source '...')
-//  - compileSdkVersion / targetSdkVersion 34
-//  - guillemets standards, syntaxe Groovy valide
 
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
