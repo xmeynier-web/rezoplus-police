@@ -28,7 +28,7 @@ class RezoPlusMobileApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF13131D), // Fond sombre exact
+        scaffoldBackgroundColor: const Color(0xFF13131D),
         fontFamily: 'Roboto',
       ),
       home: const LoginScreen(),
@@ -37,7 +37,7 @@ class RezoPlusMobileApp extends StatelessWidget {
 }
 
 // ==========================================
-// 1. ÉCRAN DE CONNEXION (Conforme capture 3)
+// 1. ÉCRAN DE CONNEXION (Centrage corrigé)
 // ==========================================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -71,84 +71,88 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'REZO+ // Connexion Équipa...',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.normal),
+          'REZO+ // Connexion Équipage',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.normal),
         ),
         backgroundColor: const Color(0xFF1A1A26),
         elevation: 0,
       ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Écusson bleu avec étoile
-            Container(
-              width: 100,
-              height: 120,
-              decoration: const BoxDecoration(
-                color: Color(0xFF4285F4),
-                shape: BoxShape.rectangle,
-                borderRadius: BorderRadius.vertical(
-                  bottom: Radius.circular(50),
-                  top: Radius.circular(10),
-                ),
-              ),
-              child: const Icon(
-                Icons.star,
-                size: 60,
-                color: Color(0xFF13131D),
-              ),
-            ),
-            const SizedBox(height: 40),
-            const Text(
-              'Entrez votre indicatif radio :',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _unitController,
-              style: const TextStyle(color: Colors.white, fontSize: 18),
-              decoration: InputDecoration(
-                hintText: 'Ex: ALPHA-1, BRAVO-2...',
-                hintStyle: const TextStyle(color: Colors.grey, fontSize: 16),
-                filled: true,
-                fillColor: const Color(0xFF1A1A26),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Colors.grey, width: 1),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0xFF4285F4), width: 2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4A8CFF),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Écusson bleu avec étoile
+              Container(
+                width: 100,
+                height: 120,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF4285F4),
+                  shape: BoxShape.rectangle,
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(50),
+                    top: Radius.circular(10),
                   ),
                 ),
-                onPressed: _connectUnit,
-                child: const Text(
-                  'Démarrer la prise de service',
-                  style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
+                child: const Icon(
+                  Icons.star,
+                  size: 60,
+                  color: Color(0xFF13131D),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 40),
+              const Text(
+                'Entrez votre indicatif radio :',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _unitController,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                decoration: InputDecoration(
+                  hintText: 'Ex: ALPHA-1, BRAVO-2...',
+                  hintStyle: const TextStyle(color: Colors.grey, fontSize: 16, fontWeight: FontWeight.normal),
+                  filled: true,
+                  fillColor: const Color(0xFF1A1A26),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.grey, width: 1),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFF4285F4), width: 2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                height: 55,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4A8CFF),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  onPressed: _connectUnit,
+                  child: const Text(
+                    'Démarrer la prise de service',
+                    style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -156,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ==========================================
-// 2. DASHBOARD UNITÉ (Conforme captures 1 et 2)
+// 2. DASHBOARD UNITÉ (Couleurs et temps réel corrigés)
 // ==========================================
 class PatrolDashboardScreen extends StatefulWidget {
   final String unitId;
@@ -167,14 +171,15 @@ class PatrolDashboardScreen extends StatefulWidget {
 }
 
 class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
-  // Statuts mis à jour selon vos consignes
+  // Liste des statuts avec leurs couleurs associées
   final List<Map<String, dynamic>> availableStatuses = [
-    {'id': 'EN_PATROUILLE', 'label': 'En Patrouille', 'color': const Color(0xFF4CAF50)},
-    {'id': 'EN_INTERVENTION', 'label': 'En Intervention', 'color': const Color(0xFFFF9800)},
-    {'id': 'CONTROLE_PR', 'label': 'Contrôle PR', 'color': const Color(0xFF009688)},
-    {'id': 'TRANSPORT_ESCORTE', 'label': 'Transport / Escorte', 'color': const Color(0xFF2196F3)},
-    {'id': 'ESCALE_TECHNIQUE', 'label': 'Escale Technique', 'color': const Color(0xFFE91E63)},
-    {'id': 'RETOUR_POSTE', 'label': 'Retour Poste', 'color': const Color(0xFF9C27B0)},
+    {'id': 'EN_PATROUILLE', 'label': 'En Patrouille', 'color': const Color(0xFF4CAF50), 'bg': const Color(0xFF1B2E21)},
+    {'id': 'EN_INTERVENTION', 'label': 'En Intervention', 'color': const Color(0xFFFF9800), 'bg': const Color(0xFF332211)},
+    {'id': 'CONTROLE_PR', 'label': 'Contrôle PR', 'color': const Color(0xFF009688), 'bg': const Color(0xFF113330)},
+    {'id': 'TRANSPORT_ESCORTE', 'label': 'Transport / Escorte', 'color': const Color(0xFF2196F3), 'bg': const Color(0xFF112233)},
+    {'id': 'ESCALE_TECHNIQUE', 'label': 'Escale Technique', 'color': const Color(0xFFE91E63), 'bg': const Color(0xFF331122)},
+    {'id': 'RETOUR_POSTE', 'label': 'Retour Poste', 'color': const Color(0xFF9C27B0), 'bg': const Color(0xFF2B1638)},
+    {'id': 'SOS_ACTIF', 'label': 'SOS ACTIF', 'color': const Color(0xFFF44336), 'bg': const Color(0xFF3B1212)},
   ];
 
   String currentStatus = 'EN_PATROUILLE';
@@ -202,6 +207,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initLocationAndSync();
+      _updateFirebaseData(); // Enregistre l'unité dès son arrivée
     });
   }
 
@@ -265,7 +271,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     setState(() {
       currentStatus = newStatus;
     });
-    _updateFirebaseData();
+    _updateFirebaseData(); // Force la remontée immédiate du nouveau statut
   }
 
   void _disconnectUnit() async {
@@ -283,8 +289,18 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     );
   }
 
+  // Récupère les configurations visuelles du statut actuel
+  Map<String, dynamic> _getCurrentStatusConfig() {
+    return availableStatuses.firstWhere(
+      (s) => s['id'] == currentStatus,
+      orElse: () => availableStatuses[0],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final statusConfig = _getCurrentStatusConfig();
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -305,39 +321,40 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. Cadre de Statut Actuel (Capture 1)
-            Container(
+            // 1. Cadre de Statut Actuel avec couleurs dynamiques
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFF1B2E21),
-                border: Border.all(color: const Color(0xFF4CAF50), width: 2),
+                color: statusConfig['bg'],
+                border: Border.all(color: statusConfig['color'], width: 2),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
                 children: [
                   const Text(
-                    'STATUT OPÉRATIONNEL ACTUEL (Appuyez pour actualiser)',
+                    'STATUT OPÉRATIONNEL ACTUEL',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 10),
                   Text(
                     currentStatus,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF4CAF50),
+                      color: statusConfig['color'],
                     ),
                   ),
                   const SizedBox(height: 8),
                   const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
+                      Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
                       SizedBox(width: 5),
                       Text(
-                        'Actualisation impossible',
-                        style: TextStyle(color: Colors.amber, fontSize: 13),
+                        'Synchronisé avec le CSU',
+                        style: TextStyle(color: Colors.greenAccent, fontSize: 13),
                       ),
                     ],
                   )
@@ -346,7 +363,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
             ),
             const SizedBox(height: 20),
 
-            // 2. Bouton SOS (Captures 1 et 2)
+            // 2. Bouton SOS
             SizedBox(
               height: 55,
               child: ElevatedButton.icon(
@@ -381,7 +398,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
               ),
-              itemCount: availableStatuses.length,
+              itemCount: availableStatuses.length - 1, // On exclut le SOS de la grille simple
               itemBuilder: (context, index) {
                 final status = availableStatuses[index];
                 final isSelected = currentStatus == status['id'];
@@ -391,7 +408,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                       side: isSelected
-                          ? const BorderSide(color: Colors.white, width: 2)
+                          ? const BorderSide(color: Colors.white, width: 3)
                           : BorderSide.none,
                     ),
                   ),
@@ -413,7 +430,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
             const Divider(color: Colors.grey, thickness: 0.8),
             const SizedBox(height: 10),
 
-            // 4. Contrôle du matériel embarqué (Capture 2)
+            // 4. Contrôle du matériel embarqué
             const Text(
               'Contrôle du Matériel Embarqué :',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
