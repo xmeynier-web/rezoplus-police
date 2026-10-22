@@ -5,7 +5,11 @@ import 'package:geolocator/geolocator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint("Erreur d'initialisation Firebase : $e");
+  }
   runApp(const RezoPlusPatrouilleApp());
 }
 
@@ -37,7 +41,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final TextEditingController _msgController = TextEditingController();
   
-  String _unitId = "Patrouille-01";
+  final String _unitId = "Patrouille-01";
   
   // Liste exacte des statuts opérationnels demandés
   final List<String> _statusList = [
@@ -52,7 +56,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   
   late String _currentStatus;
 
-  // Matériel embarqué (géré sous forme de map d'état : armé/présent ou non)
+  // Matériel embarqué exact
   final Map<String, bool> _equipment = {
     "Stop-Stick": false,
     "BTD": false,
@@ -143,7 +147,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         const SnackBar(content: Text("Prise de service enregistrée auprès du CSU.")),
       );
     } else {
-      await _dbRef.child("units/$_unitId").remove();
+      try {
+        await _dbRef.child("units/$_unitId").remove();
+      } catch (_) {}
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Fin de service. Unité déconnectée.")),
       );
@@ -153,14 +159,16 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   void _sendDataToFirebase() {
     if (_currentPosition == null) return;
 
-    _dbRef.child("units/$_unitId").set({
-      "latitude": _currentPosition!.latitude,
-      "longitude": _currentPosition!.longitude,
-      "status": _currentStatus,
-      "equipment": _equipment,
-      "sos": _sosActive,
-      "timestamp": ServerValue.timestamp,
-    });
+    try {
+      _dbRef.child("units/$_unitId").set({
+        "latitude": _currentPosition!.latitude,
+        "longitude": _currentPosition!.longitude,
+        "status": _currentStatus,
+        "equipment": _equipment,
+        "sos": _sosActive,
+        "timestamp": ServerValue.timestamp,
+      });
+    } catch (_) {}
   }
 
   void _triggerSOS() {
@@ -178,11 +186,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   void _sendMessage() {
     if (_msgController.text.trim().isEmpty || !_isOnline) return;
 
-    _dbRef.child("messages").push().set({
-      "sender": _unitId,
-      "text": _msgController.text.trim(),
-      "timestamp": ServerValue.timestamp,
-    });
+    try {
+      _dbRef.child("messages").push().set({
+        "sender": _unitId,
+        "text": _msgController.text.trim(),
+        "timestamp": ServerValue.timestamp,
+      });
+    } catch (_) {}
 
     _msgController.clear();
   }
@@ -213,7 +223,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                             setStateModal(() {
                               _equipment[key] = value ?? false;
                             });
-                            setState(() {}); // Met à jour l'écran principal
+                            setState(() {});
                             if (_isOnline) _sendDataToFirebase();
                           },
                         );
