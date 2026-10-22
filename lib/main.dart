@@ -2,19 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialisation sécurisée et non bloquante pour éviter tout écran blanc au démarrage
   try {
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp();
     }
   } catch (e) {
-    debugPrint("Erreur d'initialisation Firebase : $e");
+    debugPrint("Erreur init Firebase : $e");
   }
-
   runApp(const RezoPlusPatrouilleApp());
 }
 
@@ -48,7 +46,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   
   final String _unitId = "Patrouille-01";
   
-  // Les 7 statuts opérationnels stricts demandés
+  // Les 7 statuts opérationnels stricts
   final List<String> _statusList = [
     "En Patrouille",
     "En Intervention",
@@ -80,26 +78,62 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   bool _isOnline = false;
   bool _sosActive = false;
   Position? _currentPosition;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _currentStatus = _statusList[0];
-    _initGPS();
+    // NOTE : Le GPS ne se lance PLUS au démarrage pour éviter l'écran blanc / blocage initial.
   }
 
-  Future<void> _initGPS() async {
+  @override
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    _msgController.dispose();
+    super.dispose();
+  }
+
+  // Démarrage sécurisé du GPS uniquement à la prise de service
+  Future<void> _startGPSAndService() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Veuillez activer le GPS de votre appareil.")),
+          );
+        }
+        return;
+      }
 
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) return;
+        if (permission == LocationPermission.denied) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Permission de localisation refusée.")),
+            );
+          }
+          return;
+        }
       }
 
-      Geolocator.getPositionStream(
+      if (permission == LocationPermission.deniedForever) return;
+
+      // Récupération immédiate d'une position fixe
+      Position? initialPosition = await Geolocator.getLastKnownPosition() ?? 
+          await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      
+      if (mounted) {
+        setState(() {
+          _currentPosition = initialPosition;
+        });
+      }
+
+      // Écoute du flux GPS en arrière-plan
+      _positionStreamSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
           distanceFilter: 10,
@@ -148,10 +182,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
       if (!_isOnline) {
         _sosActive = false;
         _currentStatus = _statusList[0];
+        _positionStreamSubscription?.cancel();
       }
     });
 
     if (_isOnline) {
+      await _startGPSAndService();
       _sendDataToFirebase();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -171,12 +207,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   }
 
   void _sendDataToFirebase() {
-    if (_currentPosition == null) return;
-
     try {
       _dbRef.child("units/$_unitId").set({
-        "latitude": _currentPosition!.latitude,
-        "longitude": _currentPosition!.longitude,
+        "latitude": _currentPosition?.latitude ?? 48.777, // Valeur par défaut Fresnes si pas de GPS
+        "longitude": _currentPosition?.longitude ?? 2.325,
         "status": _currentStatus,
         "equipment": _equipment,
         "sos": _sosActive,
@@ -307,7 +341,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                     const SizedBox(height: 5),
                     Text(_currentPosition != null
                         ? "GPS Fixé (${_currentPosition!.latitude.toStringAsFixed(4)}, ${_currentPosition!.longitude.toStringAsFixed(4)})"
-                        : "Recherche du signal GPS..."),
+                        : "GPS en attente (Prise de service requise)"),
                   ],
                 ),
               ),
