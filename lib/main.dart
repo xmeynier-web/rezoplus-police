@@ -24,12 +24,12 @@ class RezoPlusMobileApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Rezo+ Mobile',
+      title: 'REZO+',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        primarySwatch: Colors.blue,
-        scaffoldBackgroundColor: const Color(0xFF1a1a24),
+        scaffoldBackgroundColor: const Color(0xFF13131D), // Fond sombre exact
+        fontFamily: 'Roboto',
       ),
       home: const LoginScreen(),
     );
@@ -37,7 +37,7 @@ class RezoPlusMobileApp extends StatelessWidget {
 }
 
 // ==========================================
-// 1. ÉCRAN DE CONNEXION (Saisie Indicatif Radio)
+// 1. ÉCRAN DE CONNEXION (Conforme capture 3)
 // ==========================================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -53,12 +53,11 @@ class _LoginScreenState extends State<LoginScreen> {
     String unitId = _unitController.text.trim().toUpperCase();
     if (unitId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez entrer un indicatif radio valide (ex: 260 ALPHA)')),
+        const SnackBar(content: Text('Veuillez entrer un indicatif radio (ex: CS)')),
       );
       return;
     }
 
-    // Navigation vers le tableau de bord de l'unité connectée
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -71,42 +70,83 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Connexion - Poste de Commandement'),
-        backgroundColor: const Color(0xFF222230),
+        title: const Text(
+          'REZO+ // Connexion Équipa...',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.normal),
+        ),
+        backgroundColor: const Color(0xFF1A1A26),
+        elevation: 0,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.symmetric(horizontal: 24.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Icon(Icons.local_police, size: 80, color: Colors.orange),
-            const SizedBox(height: 20),
-            const Text(
-              'REZO+ MOBILE',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            // Écusson bleu avec étoile
+            Container(
+              width: 100,
+              height: 120,
+              decoration: const BoxDecoration(
+                color: Color(0xFF4285F4),
+                shape: BoxShape.rectangle,
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(50),
+                  top: Radius.circular(10),
+                ),
+              ),
+              child: const Icon(
+                Icons.star,
+                size: 60,
+                color: Color(0xFF13131D),
+              ),
             ),
             const SizedBox(height: 40),
-            TextField(
-              controller: _unitController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Indicatif Radio de l\'Unité (ex: 260 ALPHA)',
-                labelStyle: const TextStyle(color: Colors.grey),
-                filled: true,
-                fillColor: const Color(0xFF2d2d3f),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            const Text(
+              'Entrez votre indicatif radio :',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                padding: const EdgeInsets.symmetric(vertical: 14),
+            TextField(
+              controller: _unitController,
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+              decoration: InputDecoration(
+                hintText: 'Ex: ALPHA-1, BRAVO-2...',
+                hintStyle: const TextStyle(color: Colors.grey, fontSize: 16),
+                filled: true,
+                fillColor: const Color(0xFF1A1A26),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Colors.grey, width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: Color(0xFF4285F4), width: 2),
+                ),
               ),
-              onPressed: _connectUnit,
-              child: const Text('Se connecter au CSU', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 30),
+            SizedBox(
+              width: double.infinity,
+              height: 55,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4A8CFF),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+                onPressed: _connectUnit,
+                child: const Text(
+                  'Démarrer la prise de service',
+                  style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
             ),
           ],
         ),
@@ -116,7 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ==========================================
-// 2. TABLEAU DE BORD DE L'UNITÉ CONNECTÉE
+// 2. DASHBOARD UNITÉ (Conforme captures 1 et 2)
 // ==========================================
 class PatrolDashboardScreen extends StatefulWidget {
   final String unitId;
@@ -127,20 +167,19 @@ class PatrolDashboardScreen extends StatefulWidget {
 }
 
 class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
-  // Liste des statuts à jour
-  final List<Map<String, String>> availableStatuses = [
-    {'id': 'EN_PATROUILLE', 'label': 'En Patrouille'},
-    {'id': 'EN_INTERVENTION', 'label': 'En Intervention'},
-    {'id': 'CONTROLE_PR', 'label': 'Contrôle PR'},
-    {'id': 'TRANSPORT_ESCORTE', 'label': 'Transport / Escorte'},
-    {'id': 'ESCALE_TECHNIQUE', 'label': 'Escale Technique'},
-    {'id': 'RETOUR_POSTE', 'label': 'Retour Poste'},
-    {'id': 'SOS_ACTIF', 'label': 'SOS ACTIF'},
+  // Statuts mis à jour selon vos consignes
+  final List<Map<String, dynamic>> availableStatuses = [
+    {'id': 'EN_PATROUILLE', 'label': 'En Patrouille', 'color': const Color(0xFF4CAF50)},
+    {'id': 'EN_INTERVENTION', 'label': 'En Intervention', 'color': const Color(0xFFFF9800)},
+    {'id': 'CONTROLE_PR', 'label': 'Contrôle PR', 'color': const Color(0xFF009688)},
+    {'id': 'TRANSPORT_ESCORTE', 'label': 'Transport / Escorte', 'color': const Color(0xFF2196F3)},
+    {'id': 'ESCALE_TECHNIQUE', 'label': 'Escale Technique', 'color': const Color(0xFFE91E63)},
+    {'id': 'RETOUR_POSTE', 'label': 'Retour Poste', 'color': const Color(0xFF9C27B0)},
   ];
 
   String currentStatus = 'EN_PATROUILLE';
 
-  // Matériel embarqué : décoché par défaut, ordre strict demandé
+  // Matériel embarqué décoché par défaut et ordre strict
   final Map<String, bool> equipmentState = {
     'BTD': false,
     'GAIL': false,
@@ -172,7 +211,6 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     super.dispose();
   }
 
-  // Gestion de la géolocalisation et des permissions Android
   Future<void> _initLocationAndSync() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -186,7 +224,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) return;
       }
-      
+
       if (permission == LocationPermission.deniedForever) {
         await Geolocator.openAppSettings();
         return;
@@ -230,13 +268,12 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     _updateFirebaseData();
   }
 
-  // Bouton de déconnexion : supprime l'unité de Firebase et retourne à l'écran de connexion
   void _disconnectUnit() async {
     try {
       _positionStream?.cancel();
       await FirebaseDatabase.instance.ref("units/${widget.unitId}").remove();
     } catch (e) {
-      debugPrint("Erreur lors de la suppression de l'unité : $e");
+      debugPrint("Erreur suppression unité : $e");
     }
 
     if (!mounted) return;
@@ -250,59 +287,181 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Unité : ${widget.unitId}'),
-        backgroundColor: const Color(0xFF222230),
+        title: Text(
+          'Unité : ${widget.unitId}',
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.normal),
+        ),
+        backgroundColor: const Color(0xFF13131D),
+        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.redAccent),
-            tooltip: 'Déconnexion',
+            icon: const Icon(Icons.logout, color: Colors.redAccent, size: 28),
             onPressed: _disconnectUnit,
           ),
         ],
       ),
-      body: ListView(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-        children: [
-          const Text(
-            'Statut Opérationnel',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8.0,
-            runSpacing: 8.0,
-            children: availableStatuses.map((statusMap) {
-              bool isSelected = currentStatus == statusMap['id'];
-              return ElevatedButton(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 1. Cadre de Statut Actuel (Capture 1)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1B2E21),
+                border: Border.all(color: const Color(0xFF4CAF50), width: 2),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    'STATUT OPÉRATIONNEL ACTUEL (Appuyez pour actualiser)',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    currentStatus,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF4CAF50),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
+                      SizedBox(width: 5),
+                      Text(
+                        'Actualisation impossible',
+                        style: TextStyle(color: Colors.amber, fontSize: 13),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // 2. Bouton SOS (Captures 1 et 2)
+            SizedBox(
+              height: 55,
+              child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isSelected ? Colors.orange : const Color(0xFF2d2d3f),
-                  foregroundColor: Colors.white,
+                  backgroundColor: const Color(0xFFF44336),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-                onPressed: () => _changeStatus(statusMap['id']!),
-                child: Text(statusMap['label']!),
-              );
-            }).toList(),
-          ),
-          const Divider(height: 40, color: Colors.grey),
-          const Text(
-            'Contrôle du Matériel Embarqué',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange),
-          ),
-          const SizedBox(height: 10),
-          ...equipmentState.keys.map((String key) {
-            return CheckboxListTile(
-              title: Text(key, style: const TextStyle(color: Colors.white)),
-              value: equipmentState[key],
-              activeColor: Colors.orange,
-              onChanged: (bool? value) {
-                setState(() {
-                  equipmentState[key] = value ?? false;
-                });
-                _updateFirebaseData();
+                onPressed: () => _changeStatus('SOS_ACTIF'),
+                icon: const Icon(Icons.warning_rounded, color: Colors.white, size: 28),
+                label: const Text(
+                  'DÉCLENCHEMENT SOS',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ),
+            const SizedBox(height: 25),
+
+            // 3. Grille des boutons de modification de statut
+            const Text(
+              'Modifier le statut :',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 12),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 2.3,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: availableStatuses.length,
+              itemBuilder: (context, index) {
+                final status = availableStatuses[index];
+                final isSelected = currentStatus == status['id'];
+                return ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: status['color'],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: isSelected
+                          ? const BorderSide(color: Colors.white, width: 2)
+                          : BorderSide.none,
+                    ),
+                  ),
+                  onPressed: () => _changeStatus(status['id']),
+                  child: Text(
+                    status['label'],
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                );
               },
-            );
-          }),
-        ],
+            ),
+
+            const SizedBox(height: 20),
+            const Divider(color: Colors.grey, thickness: 0.8),
+            const SizedBox(height: 10),
+
+            // 4. Contrôle du matériel embarqué (Capture 2)
+            const Text(
+              'Contrôle du Matériel Embarqué :',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 12),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 2.4,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemCount: equipmentState.keys.length,
+              itemBuilder: (context, index) {
+                String key = equipmentState.keys.elementAt(index);
+                bool value = equipmentState[key]!;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1A26),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF294372), width: 1.5),
+                  ),
+                  child: CheckboxListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+                    title: Text(
+                      key,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    value: value,
+                    activeColor: const Color(0xFF4285F4),
+                    onChanged: (bool? newValue) {
+                      setState(() {
+                        equipmentState[key] = newValue ?? false;
+                      });
+                      _updateFirebaseData();
+                    },
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
