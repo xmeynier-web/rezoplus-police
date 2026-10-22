@@ -1,3 +1,10 @@
+// android/app/build.gradle — Application Rezo+ Patrouille
+// Version corrigée :
+//  - minifyEnabled (et non "minFlyEnabled")
+//  - flutter { source '../..' } (et non source '...')
+//  - compileSdkVersion / targetSdkVersion 34
+//  - guillemets standards, syntaxe Groovy valide
+
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {
@@ -44,6 +51,8 @@ android {
 
     buildTypes {
         release {
+            // NOTE : pour un build de production signé, remplacer par une
+            // config de signature release et activer minifyEnabled/shrinkResources.
             signingConfig signingConfigs.debug
             minifyEnabled false
             shrinkResources false
