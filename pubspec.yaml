@@ -1,28 +1,26 @@
 name: rezoplus_terrain
-description: Application mobile Rezo+ Patrouille - Mairie de Fresnes
-
+description: "Application mobile Rezo+ Patrouille - Mairie de Fresnes"
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: ^3.0.0
 
+# IMPORTANT : si vous avez le pubspec.yaml / pubspec.lock du projet qui
+# compilait (celui de l'APK qui fonctionne), gardez SES versions de
+# firebase_core / firebase_database / geolocator et ne gardez de ce fichier
+# que la structure. Les numéros ci-dessous sont indicatifs.
 dependencies:
   flutter:
     sdk: flutter
-
   cupertino_icons: ^1.0.8
-
-  firebase_core: ^3.6.0
-  firebase_database: ^11.1.4
-
-  geolocator: ^13.0.1
+  firebase_core: ^3.8.0
+  firebase_database: ^11.2.0
+  geolocator: ^13.0.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^5.0.0
 
 flutter:
