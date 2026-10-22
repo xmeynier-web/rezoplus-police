@@ -8,9 +8,6 @@ import 'package:geolocator/geolocator.dart';
 
 // ---------------------------------------------------------------------------
 // DÉMARRAGE
-// runApp() est appelé IMMÉDIATEMENT : l'application s'ouvre toujours, même si
-// Firebase échoue. L'erreur éventuelle s'affiche à l'écran au lieu d'un écran
-// blanc / figé.
 // ---------------------------------------------------------------------------
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,7 +32,7 @@ class RezoPlusApp extends StatelessWidget {
   }
 }
 
-/// Écran d'amorçage : initialise Firebase puis affiche l'écran principal.
+/// Écran d'amorçage : initialise Firebase via vos options explicites puis affiche l'écran principal.
 class BootScreen extends StatefulWidget {
   const BootScreen({super.key});
 
@@ -53,9 +50,15 @@ class _BootScreenState extends State<BootScreen> {
   }
 
   Future<void> _initFirebase() async {
-    // Sur Android, google-services.json + plugin Gradle suffisent.
-    // Le timeout évite un chargement infini en cas de problème réseau/config.
-    await Firebase.initializeApp().timeout(const Duration(seconds: 15));
+    await Firebase.initializeApp(
+      options: const FirebaseOptions(
+        apiKey: "AIzaSyCu0BK4h2hhaGV4C46C9y65rBJlnLftq3A",
+        appId: "1:561209004165:web:4c19c7b505bf7", // (Assurez-vous que l'appId est complet si besoin)
+        messagingSenderId: "561209004165",
+        projectId: "rezoplus-police",
+        databaseURL: "https://rezoplus-police-default-rtdb.europe-west1.firebasedatabase.app",
+      ),
+    ).timeout(const Duration(seconds: 15));
   }
 
   void _retry() {
@@ -91,8 +94,7 @@ class _BootScreenState extends State<BootScreen> {
                 children: [
                   const Text(
                     'Impossible d\'initialiser Firebase.\n'
-                    'Vérifiez google-services.json (package_name = '
-                    'com.rezoplus.rezoplus_terrain) et la connexion réseau.',
+                    'Vérifiez vos paramètres de configuration et la connexion réseau.',
                   ),
                   const SizedBox(height: 12),
                   SelectableText('${snap.error}',
@@ -122,8 +124,7 @@ class PatrouilleHomePage extends StatefulWidget {
 }
 
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
-  // Firebase est déjà initialisé quand cet écran est construit.
-  late final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final TextEditingController _msgController = TextEditingController();
   StreamSubscription<Position>? _gpsSub;
 
@@ -163,7 +164,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   @override
   void initState() {
     super.initState();
-    // Lancé après le premier rendu : ne bloque jamais l'affichage.
     WidgetsBinding.instance.addPostFrameCallback((_) => _initGPS());
   }
 
@@ -196,7 +196,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
           ? AndroidSettings(
               accuracy: LocationAccuracy.high,
               distanceFilter: 10,
-              // Service de premier plan : le suivi continue écran éteint.
               foregroundNotificationConfig: const ForegroundNotificationConfig(
                 notificationTitle: 'Rezo+ Patrouille',
                 notificationText: 'Géolocalisation active',
@@ -268,7 +267,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
   Future<void> _triggerSOS() async {
     if (!_sosActive) {
-      // Évite le déclenchement accidentel.
       final ok = await _confirm('SOS détresse',
           'Déclencher l\'alerte SOS vers le CSU ?');
       if (!ok) return;
@@ -360,12 +358,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
       stream: _dbRef.child('messages').limitToLast(20).onValue,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text('Messagerie indisponible'));
+          return const Center(child: Text('Messagerie indisponible'));
         }
         final raw = snapshot.data?.snapshot.value;
         if (raw == null) return const Center(child: Text('Aucun message'));
 
-        // Firebase peut renvoyer une Map (cas normal) ou une List.
         final List<Map<dynamic, dynamic>> msgs = [];
         if (raw is Map) {
           for (final v in raw.values) {
