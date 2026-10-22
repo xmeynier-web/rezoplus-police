@@ -37,7 +37,7 @@ class RezoPlusMobileApp extends StatelessWidget {
 }
 
 // ==========================================
-// 1. ÉCRAN DE CONNEXION (Centrage corrigé)
+// 1. ÉCRAN DE CONNEXION
 // ==========================================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -84,7 +84,6 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Écusson bleu avec étoile
               Container(
                 width: 100,
                 height: 120,
@@ -160,7 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ==========================================
-// 2. DASHBOARD UNITÉ (Couleurs et temps réel corrigés)
+// 2. DASHBOARD UNITÉ
 // ==========================================
 class PatrolDashboardScreen extends StatefulWidget {
   final String unitId;
@@ -171,7 +170,6 @@ class PatrolDashboardScreen extends StatefulWidget {
 }
 
 class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
-  // Liste des statuts avec leurs couleurs associées
   final List<Map<String, dynamic>> availableStatuses = [
     {'id': 'EN_PATROUILLE', 'label': 'En Patrouille', 'color': const Color(0xFF4CAF50), 'bg': const Color(0xFF1B2E21)},
     {'id': 'EN_INTERVENTION', 'label': 'En Intervention', 'color': const Color(0xFFFF9800), 'bg': const Color(0xFF332211)},
@@ -184,7 +182,6 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
 
   String currentStatus = 'EN_PATROUILLE';
 
-  // Matériel embarqué décoché par défaut et ordre strict
   final Map<String, bool> equipmentState = {
     'BTD': false,
     'GAIL': false,
@@ -201,13 +198,18 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
   };
 
   StreamSubscription<Position>? _positionStream;
+  DatabaseReference? _unitRef;
 
   @override
   void initState() {
     super.initState();
+    _unitRef = FirebaseDatabase.instance.ref("units/${widget.unitId}");
+    
+    // Initialisation immédiate de l'unité dans Firebase pour forcer la visibilité au PC
+    _pushInitialState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initLocationAndSync();
-      _updateFirebaseData(); // Enregistre l'unité dès son arrivée
     });
   }
 
@@ -215,6 +217,18 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
   void dispose() {
     _positionStream?.cancel();
     super.dispose();
+  }
+
+  void _pushInitialState() {
+    try {
+      _unitRef?.set({
+        "status": currentStatus,
+        "equipment": equipmentState,
+        "derniere_maj": ServerValue.timestamp,
+      });
+    } catch (e) {
+      debugPrint("Erreur initialisation Firebase : $e");
+    }
   }
 
   Future<void> _initLocationAndSync() async {
@@ -242,28 +256,15 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
           distanceFilter: 10,
         ),
       ).listen((Position position) {
-        _updateFirebaseData(lat: position.latitude, lng: position.longitude);
+        // Envoi isolé de la position pour ne pas perturber le statut
+        _unitRef?.update({
+          "latitude": position.latitude,
+          "longitude": position.longitude,
+          "derniere_maj": ServerValue.timestamp,
+        });
       });
     } catch (e) {
       debugPrint("Erreur GPS : $e");
-    }
-  }
-
-  void _updateFirebaseData({double? lat, double? lng}) {
-    try {
-      DatabaseReference ref = FirebaseDatabase.instance.ref("units/${widget.unitId}");
-      Map<String, dynamic> updateData = {
-        "status": currentStatus,
-        "equipment": equipmentState,
-        "derniere_maj": ServerValue.timestamp,
-      };
-      if (lat != null && lng != null) {
-        updateData["latitude"] = lat;
-        updateData["longitude"] = lng;
-      }
-      ref.update(updateData);
-    } catch (e) {
-      debugPrint("Erreur mise à jour Firebase : $e");
     }
   }
 
@@ -271,13 +272,34 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     setState(() {
       currentStatus = newStatus;
     });
-    _updateFirebaseData(); // Force la remontée immédiate du nouveau statut
+
+    // Mise à jour immédiate et explicite du statut et du matériel dans Firebase
+    try {
+      _unitRef?.update({
+        "status": newStatus,
+        "equipment": equipmentState,
+        "derniere_maj": ServerValue.timestamp,
+      });
+    } catch (e) {
+      debugPrint("Erreur mise à jour statut : $e");
+    }
+  }
+
+  void _updateEquipment() {
+    try {
+      _unitRef?.update({
+        "equipment": equipmentState,
+        "derniere_maj": ServerValue.timestamp,
+      });
+    } catch (e) {
+      debugPrint("Erreur mise à jour matériel : $e");
+    }
   }
 
   void _disconnectUnit() async {
     try {
       _positionStream?.cancel();
-      await FirebaseDatabase.instance.ref("units/${widget.unitId}").remove();
+      await _unitRef?.remove();
     } catch (e) {
       debugPrint("Erreur suppression unité : $e");
     }
@@ -289,7 +311,6 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     );
   }
 
-  // Récupère les configurations visuelles du statut actuel
   Map<String, dynamic> _getCurrentStatusConfig() {
     return availableStatuses.firstWhere(
       (s) => s['id'] == currentStatus,
@@ -383,7 +404,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
             ),
             const SizedBox(height: 25),
 
-            // 3. Grille des boutons de modification de statut
+            // 3. Grille des statuts
             const Text(
               'Modifier le statut :',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
@@ -398,7 +419,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
               ),
-              itemCount: availableStatuses.length - 1, // On exclut le SOS de la grille simple
+              itemCount: availableStatuses.length - 1,
               itemBuilder: (context, index) {
                 final status = availableStatuses[index];
                 final isSelected = currentStatus == status['id'];
@@ -430,7 +451,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
             const Divider(color: Colors.grey, thickness: 0.8),
             const SizedBox(height: 10),
 
-            // 4. Contrôle du matériel embarqué
+            // 4. Contrôle du matériel
             const Text(
               'Contrôle du Matériel Embarqué :',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
@@ -471,7 +492,7 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
                       setState(() {
                         equipmentState[key] = newValue ?? false;
                       });
-                      _updateFirebaseData();
+                      _updateEquipment();
                     },
                   ),
                 );
