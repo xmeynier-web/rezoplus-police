@@ -21,13 +21,14 @@ Future<void> main() async {
 
   // Initialisation Firebase robuste : toute erreur est affichée à l'écran
   // au lieu de provoquer un écran blanc silencieux.
-  final FirebaseApp? app;
+  bool firebaseReady = false;
   try {
-    app = await Firebase.initializeApp();
+    await Firebase.initializeApp();
+    firebaseReady = true;
   } catch (e) {
-    app = null;
+    debugPrint('Erreur init Firebase : $e');
   }
-  runApp(RezoPlusPatrouilleApp(firebaseReady: app != null));
+  runApp(RezoPlusPatrouilleApp(firebaseReady: firebaseReady));
 }
 
 class RezoPlusPatrouilleApp extends StatelessWidget {
