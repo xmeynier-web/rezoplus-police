@@ -56,7 +56,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   
   late String _currentStatus;
 
-  // Matériel embarqué exact
+  // Liste exacte du matériel embarqué
   final Map<String, bool> _equipment = {
     "Stop-Stick": false,
     "BTD": false,
