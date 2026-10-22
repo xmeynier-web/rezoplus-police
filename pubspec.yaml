@@ -1,10 +1,14 @@
+# pubspec.yaml — Application Rezo+ Patrouille (Mairie de Fresnes)
+# Version corrigée : contrainte SDK présente, YAML valide,
+# guillemets fermés, versions cohérentes.
+
 name: rezoplus_terrain
 description: "Application mobile Rezo+ Patrouille - Mairie de Fresnes"
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.13.0 <4.0.0'
 
 dependencies:
   flutter:
