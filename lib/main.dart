@@ -6,7 +6,9 @@ import 'package:geolocator/geolocator.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    await Firebase.initializeApp();
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp();
+    }
   } catch (e) {
     debugPrint("Erreur d'initialisation Firebase : $e");
   }
@@ -38,12 +40,10 @@ class PatrouilleHomePage extends StatefulWidget {
 }
 
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
-  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final TextEditingController _msgController = TextEditingController();
-  
   final String _unitId = "Patrouille-01";
   
-  // Liste exacte des statuts opérationnels demandés
+  // Liste exacte et stricte des statuts opérationnels
   final List<String> _statusList = [
     "En Patrouille",
     "En Intervention",
@@ -56,7 +56,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   
   late String _currentStatus;
 
-  // Liste exacte du matériel embarqué
+  // Liste exacte du matériel embarqué (false par défaut)
   final Map<String, bool> _equipment = {
     "Stop-Stick": false,
     "BTD": false,
@@ -84,28 +84,33 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   }
 
   Future<void> _initGPS() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
-    }
-
-    Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
-    ).listen((Position position) {
-      setState(() {
-        _currentPosition = position;
-      });
-      if (_isOnline) {
-        _sendDataToFirebase();
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
       }
-    });
+
+      Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen((Position position) {
+        if (!mounted) return;
+        setState(() {
+          _currentPosition = position;
+        });
+        if (_isOnline) {
+          _sendDataToFirebase();
+        }
+      });
+    } catch (e) {
+      debugPrint("Erreur GPS : $e");
+    }
   }
 
   Future<void> _toggleService() async {
@@ -143,24 +148,27 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
     if (_isOnline) {
       _sendDataToFirebase();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Prise de service enregistrée auprès du CSU.")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Prise de service enregistrée auprès du CSU.")),
+        );
+      }
     } else {
       try {
-        await _dbRef.child("units/$_unitId").remove();
+        await FirebaseDatabase.instance.ref().child("units/$_unitId").remove();
       } catch (_) {}
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Fin de service. Unité déconnectée.")),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Fin de service. Unité déconnectée.")),
+        );
+      }
     }
   }
 
   void _sendDataToFirebase() {
     if (_currentPosition == null) return;
-
     try {
-      _dbRef.child("units/$_unitId").set({
+      FirebaseDatabase.instance.ref().child("units/$_unitId").set({
         "latitude": _currentPosition!.latitude,
         "longitude": _currentPosition!.longitude,
         "status": _currentStatus,
@@ -168,7 +176,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
         "sos": _sosActive,
         "timestamp": ServerValue.timestamp,
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("Erreur écriture Firebase : $e");
+    }
   }
 
   void _triggerSOS() {
@@ -187,12 +197,14 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     if (_msgController.text.trim().isEmpty || !_isOnline) return;
 
     try {
-      _dbRef.child("messages").push().set({
+      FirebaseDatabase.instance.ref().child("messages").push().set({
         "sender": _unitId,
         "text": _msgController.text.trim(),
         "timestamp": ServerValue.timestamp,
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("Erreur message Firebase : $e");
+    }
 
     _msgController.clear();
   }
@@ -205,6 +217,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
           builder: (BuildContext context, StateSetter setStateModal) {
             return Container(
               padding: const EdgeInsets.all(16.0),
+              height: 400,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -333,12 +346,16 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                     ),
                     Expanded(
                       child: StreamBuilder(
-                        stream: _dbRef.child("messages").limitToLast(20).onValue,
+                        stream: FirebaseDatabase.instance.ref().child("messages").limitToLast(20).onValue,
                         builder: (context, AsyncSnapshot<DatabaseEvent> snapshot) {
                           if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
                             return const Center(child: Text("Aucun message"));
                           }
-                          Map<dynamic, dynamic> map = snapshot.data!.snapshot.value as Map<dynamic, dynamic>;
+                          Object? rawValue = snapshot.data!.snapshot.value;
+                          if (rawValue is! Map) {
+                            return const Center(child: Text("Chargement..."));
+                          }
+                          Map<dynamic, dynamic> map = rawValue;
                           List<MapEntry<dynamic, dynamic>> entries = map.entries.toList()
                             ..sort((a, b) => (a.value['timestamp'] ?? 0).compareTo(b.value['timestamp'] ?? 0));
 
