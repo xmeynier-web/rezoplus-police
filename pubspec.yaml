@@ -1,5 +1,5 @@
-name: rezoplus_patrouille
-description: "Application Mobile Patrouille Rezo+"
+name: rezoplus_terrain
+description: "Application mobile Rezo+ Patrouille - Mairie de Fresnes"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,14 +9,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.6
   firebase_core: ^2.27.0
-  firebase_database: ^10.4.9
+  firebase_database: ^10.4.8
   geolocator: ^10.1.0
-  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
