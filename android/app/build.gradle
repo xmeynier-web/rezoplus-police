@@ -19,11 +19,11 @@ if (flutterVersionName == null) {
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'dev.flutter.flutter-gradle-plugin'
+apply plugin: 'com.google.gms.google-services'
 
 android {
-    namespace "com.example.rezoplus_terrain"
+    namespace "com.rezoplus.rezoplus_terrain"
     compileSdkVersion 34
-    ndkVersion "25.1.8937393"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -35,7 +35,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.example.rezoplus_terrain"
+        applicationId "com.rezoplus.rezoplus_terrain"
         minSdkVersion 21
         targetSdkVersion 34
         versionCode flutterVersionCode.toInteger()
