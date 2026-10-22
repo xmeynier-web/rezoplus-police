@@ -5,20 +5,16 @@ import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 
 void main() {
-  // Capture toutes les erreurs non gérées au démarrage pour éviter les écrans figés/blancs
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    
-    // Initialisation sécurisée de Firebase avec gestion d'erreur
     try {
       await Firebase.initializeApp();
     } catch (e) {
       debugPrint("Erreur d'initialisation Firebase : $e");
     }
-
     runApp(const RezoPlusMobileApp());
   }, (error, stack) {
-    debugPrint("Erreur critique interceptée : $error");
+    debugPrint("Erreur critique : $error");
   });
 }
 
@@ -35,19 +31,103 @@ class RezoPlusMobileApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: const Color(0xFF1a1a24),
       ),
-      home: const PatrolDashboardScreen(),
+      home: const LoginScreen(),
     );
   }
 }
 
+// ==========================================
+// 1. ÉCRAN DE CONNEXION (Saisie Indicatif Radio)
+// ==========================================
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _unitController = TextEditingController();
+
+  void _connectUnit() {
+    String unitId = _unitController.text.trim().toUpperCase();
+    if (unitId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez entrer un indicatif radio valide (ex: 260 ALPHA)')),
+      );
+      return;
+    }
+
+    // Navigation vers le tableau de bord de l'unité connectée
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PatrolDashboardScreen(unitId: unitId),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Connexion - Poste de Commandement'),
+        backgroundColor: const Color(0xFF222230),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.local_police, size: 80, color: Colors.orange),
+            const SizedBox(height: 20),
+            const Text(
+              'REZO+ MOBILE',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 40),
+            TextField(
+              controller: _unitController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Indicatif Radio de l\'Unité (ex: 260 ALPHA)',
+                labelStyle: const TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: const Color(0xFF2d2d3f),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: _connectUnit,
+              child: const Text('Se connecter au CSU', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 2. TABLEAU DE BORD DE L'UNITÉ CONNECTÉE
+// ==========================================
 class PatrolDashboardScreen extends StatefulWidget {
-  const PatrolDashboardScreen({super.key});
+  final String unitId;
+  const PatrolDashboardScreen({super.key, required this.unitId});
 
   @override
   State<PatrolDashboardScreen> createState() => _PatrolDashboardScreenState();
 }
 
 class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
+  // Liste des statuts à jour
   final List<Map<String, String>> availableStatuses = [
     {'id': 'EN_PATROUILLE', 'label': 'En Patrouille'},
     {'id': 'EN_INTERVENTION', 'label': 'En Intervention'},
@@ -59,8 +139,8 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
   ];
 
   String currentStatus = 'EN_PATROUILLE';
-  String unitId = '260 ALPHA';
 
+  // Matériel embarqué : décoché par défaut, ordre strict demandé
   final Map<String, bool> equipmentState = {
     'BTD': false,
     'GAIL': false,
@@ -76,73 +156,70 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     'DSA': false,
   };
 
-  bool _isInitialized = false;
+  StreamSubscription<Position>? _positionStream;
 
   @override
   void initState() {
     super.initState();
-    // Exécution différée des vérifications pour garantir que l'UI s'affiche instantanément
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initLocationSafely();
+      _initLocationAndSync();
     });
   }
 
-  // Initialisation sécurisée du GPS pour ne jamais bloquer le chargement de l'app
-  Future<void> _initLocationSafely() async {
+  @override
+  void dispose() {
+    _positionStream?.cancel();
+    super.dispose();
+  }
+
+  // Gestion de la géolocalisation et des permissions Android
+  Future<void> _initLocationAndSync() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        setState(() => _isInitialized = true);
+        await Geolocator.openLocationSettings();
         return;
       }
 
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() => _isInitialized = true);
-          return;
-        }
+        if (permission == LocationPermission.denied) return;
       }
       
       if (permission == LocationPermission.deniedForever) {
-        setState(() => _isInitialized = true);
+        await Geolocator.openAppSettings();
         return;
       }
 
-      // Écoute du flux GPS en arrière-plan sans bloquer l'interface
-      Geolocator.getPositionStream(
+      _positionStream = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
           distanceFilter: 10,
         ),
       ).listen((Position position) {
-        _updateFirebaseLocation(position.latitude, position.longitude);
-      }, onError: (e) {
-        debugPrint("Erreur flux GPS : $e");
+        _updateFirebaseData(lat: position.latitude, lng: position.longitude);
       });
-
     } catch (e) {
-      debugPrint("Erreur lors de l'initialisation de la localisation : $e");
-    } finally {
-      if (mounted) {
-        setState(() => _isInitialized = true);
-      }
+      debugPrint("Erreur GPS : $e");
     }
   }
 
-  void _updateFirebaseLocation(double lat, double lng) {
+  void _updateFirebaseData({double? lat, double? lng}) {
     try {
-      DatabaseReference ref = FirebaseDatabase.instance.ref("units/$unitId");
-      ref.update({
-        "latitude": lat,
-        "longitude": lng,
+      DatabaseReference ref = FirebaseDatabase.instance.ref("units/${widget.unitId}");
+      Map<String, dynamic> updateData = {
         "status": currentStatus,
         "equipment": equipmentState,
         "derniere_maj": ServerValue.timestamp,
-      });
+      };
+      if (lat != null && lng != null) {
+        updateData["latitude"] = lat;
+        updateData["longitude"] = lng;
+      }
+      ref.update(updateData);
     } catch (e) {
-      debugPrint("Erreur mise à jour Firebase GPS : $e");
+      debugPrint("Erreur mise à jour Firebase : $e");
     }
   }
 
@@ -150,40 +227,38 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
     setState(() {
       currentStatus = newStatus;
     });
-    try {
-      DatabaseReference ref = FirebaseDatabase.instance.ref("units/$unitId");
-      ref.update({
-        "status": currentStatus,
-        "derniere_maj": ServerValue.timestamp,
-      });
-    } catch (e) {
-      debugPrint("Erreur mise à jour statut Firebase : $e");
-    }
+    _updateFirebaseData();
   }
 
-  void _updateEquipment() {
+  // Bouton de déconnexion : supprime l'unité de Firebase et retourne à l'écran de connexion
+  void _disconnectUnit() async {
     try {
-      DatabaseReference ref = FirebaseDatabase.instance.ref("units/$unitId");
-      ref.update({
-        "equipment": equipmentState,
-        "derniere_maj": ServerValue.timestamp,
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Matériel embarqué mis à jour !')),
-        );
-      }
+      _positionStream?.cancel();
+      await FirebaseDatabase.instance.ref("units/${widget.unitId}").remove();
     } catch (e) {
-      debugPrint("Erreur mise à jour matériel Firebase : $e");
+      debugPrint("Erreur lors de la suppression de l'unité : $e");
     }
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const LoginScreen()),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Unité : $unitId'),
+        title: Text('Unité : ${widget.unitId}'),
         backgroundColor: const Color(0xFF222230),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            tooltip: 'Déconnexion',
+            onPressed: _disconnectUnit,
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
@@ -216,14 +291,14 @@ class _PatrolDashboardScreenState extends State<PatrolDashboardScreen> {
           const SizedBox(height: 10),
           ...equipmentState.keys.map((String key) {
             return CheckboxListTile(
-              title: Text(key),
+              title: Text(key, style: const TextStyle(color: Colors.white)),
               value: equipmentState[key],
               activeColor: Colors.orange,
               onChanged: (bool? value) {
                 setState(() {
                   equipmentState[key] = value ?? false;
                 });
-                _updateEquipment();
+                _updateFirebaseData();
               },
             );
           }),
