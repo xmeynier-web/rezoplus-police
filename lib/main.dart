@@ -113,7 +113,7 @@ class _BootScreenState extends State<BootScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// ÉCRAN DE CONNEXION / INDICATIF RADIO (Vide par défaut)
+// ÉCRAN DE CONNEXION / INDICATIF RADIO
 // ---------------------------------------------------------------------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -201,21 +201,22 @@ class PatrouilleHomePage extends StatefulWidget {
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  // Coordonnées fixes de base (12 Rue Roger Salengro, 94260 Fresnes)[cite: 7]
+  // Position fixe (12 Rue Roger Salengro, Fresnes)
   static const double _fixedLatitude = 48.755578;
   static const double _fixedLongitude = 2.321367;
 
-  final List<String> _statusList = [
-    'En Patrouille',
-    'En Intervention',
-    'Contrôle PR',
-    'Transport',
-    'Retour au poste',
-    'Indisponible',
-    'SOS ACTIF',
+  // Liste des statuts avec code technique pour le CSU et libellé pour l'affichage
+  final List<Map<String, String>> _statusList = [
+    {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
+    {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
+    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#009688'},
+    {'label': 'Transport', 'code': 'TRANSPORT', 'hex': '#00a8ff'},
+    {'label': 'Retour au poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
+    {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
+    {'label': 'SOS ACTIF', 'code': 'SOS_ACTIF', 'hex': '#ff2222'},
   ];
 
-  late String _currentStatus = _statusList[0];
+  late Map<String, String> _currentStatusMap = _statusList[0];
 
   final Map<String, bool> _equipment = {
     'Stop-Stick': false,
@@ -233,7 +234,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   };
 
   bool _isOnline = true;
-  bool _sosActive = false;
 
   @override
   void initState() {
@@ -244,37 +244,16 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   }
 
   // --------------------------- FIREBASE ------------------------------------
-  
-  String _getStatusColorHex(String status) {
-    switch (status) {
-      case 'En Patrouille':
-        return '#22bb33';
-      case 'En Intervention':
-        return '#ff8800';
-      case 'Contrôle PR':
-        return '#009688';
-      case 'Transport':
-        return '#00a8ff';
-      case 'Retour au poste':
-        return '#9c27b0';
-      case 'Indisponible':
-        return '#777777';
-      case 'SOS ACTIF':
-        return '#ff2222';
-      default:
-        return '#777777';
-    }
-  }
-
   Future<void> _sendDataToFirebase() async {
     try {
       await _dbRef.child('units/${widget.unitId}').set({
         'latitude': _fixedLatitude,
         'longitude': _fixedLongitude,
-        'status': _currentStatus,
-        'statusColor': _getStatusColorHex(_currentStatus),
+        'status': _currentStatusMap['code'], // Code technique normalisé pour le CSU
+        'statusLabel': _currentStatusMap['label'], // Libellé visuel
+        'statusColor': _currentStatusMap['hex'],
         'equipment': _equipment,
-        'sos': _sosActive,
+        'sos': _currentStatusMap['code'] == 'SOS_ACTIF',
         'timestamp': ServerValue.timestamp,
       });
     } catch (e) {
@@ -282,16 +261,15 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     }
   }
 
-  Future<void> _changeStatus(String newStatus) async {
+  Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() {
-      _currentStatus = newStatus;
-      _sosActive = (newStatus == 'SOS ACTIF');
+      _currentStatusMap = statusMap;
     });
     await _sendDataToFirebase();
-    if (_sosActive) {
+    if (statusMap['code'] == 'SOS_ACTIF') {
       _snack('ALERTE SOS DÉCLENCHÉE !');
     } else {
-      _snack('Statut mis à jour : $newStatus');
+      _snack('Statut mis à jour : ${statusMap['label']}');
     }
   }
 
@@ -326,21 +304,21 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   }
 
   // ------------------------------ UI ---------------------------------------
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'En Patrouille':
+  Color _getStatusColor(String code) {
+    switch (code) {
+      case 'EN_PATROUILLE':
         return Colors.green.shade700;
-      case 'En Intervention':
+      case 'EN_INTERVENTION':
         return Colors.orange.shade800;
-      case 'Contrôle PR':
+      case 'CONTROLE_PR':
         return Colors.teal.shade700;
-      case 'Transport':
+      case 'TRANSPORT':
         return Colors.blue.shade700;
-      case 'Retour au poste':
+      case 'RETOUR_POSTE':
         return Colors.purple.shade700;
-      case 'Indisponible':
+      case 'INDISPONIBLE':
         return Colors.grey.shade800;
-      case 'SOS ACTIF':
+      case 'SOS_ACTIF':
         return Colors.red.shade900;
       default:
         return Colors.grey.shade700;
@@ -349,10 +327,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isSosActive = (_currentStatusMap['code'] == 'SOS_ACTIF');
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Unité : ${widget.unitId}'),
-        backgroundColor: _sosActive ? Colors.red[900] : null,
+        backgroundColor: isSosActive ? Colors.red[900] : null,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -369,13 +349,18 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
             // 1. Bouton SOS d'urgence visible immédiatement en haut
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: _sosActive ? Colors.orange[800] : Colors.red,
+                backgroundColor: isSosActive ? Colors.orange[800] : Colors.red,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
-              onPressed: () => _changeStatus(_sosActive ? 'En Patrouille' : 'SOS ACTIF'),
+              onPressed: () {
+                final targetStatus = isSosActive
+                    ? _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE')
+                    : _statusList.firstWhere((s) => s['code'] == 'SOS_ACTIF');
+                _changeStatus(targetStatus);
+              },
               icon: const Icon(Icons.warning, size: 24, color: Colors.white),
               label: Text(
-                _sosActive ? 'DÉSACTIVER L\'ALERTE SOS' : 'DÉCLENCHER UN SOS',
+                isSosActive ? 'DÉSACTIVER L\'ALERTE SOS' : 'DÉCLENCHER UN SOS',
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
@@ -385,7 +370,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: _getStatusColor(_currentStatus),
+                color: _getStatusColor(_currentStatusMap['code']!),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.white24),
               ),
@@ -393,7 +378,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                 children: [
                   const Text('STATUT OPÉRATIONNEL ACTUEL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
                   const SizedBox(height: 4),
-                  Text(_currentStatus.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(_currentStatusMap['label']!.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 4),
                   const Text(
                     'Position : 12 Rue Roger Salengro, Fresnes',
@@ -414,11 +399,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
               childAspectRatio: 2.8,
               mainAxisSpacing: 8,
               crossAxisSpacing: 8,
-              children: _statusList.where((s) => s != 'SOS ACTIF').map((status) {
-                final bool isActive = (status == _currentStatus);
+              children: _statusList.where((s) => s['code'] != 'SOS_ACTIF').map((statusMap) {
+                final bool isActive = (statusMap['code'] == _currentStatusMap['code']);
                 return ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _getStatusColor(status),
+                    backgroundColor: _getStatusColor(statusMap['code']!),
                     elevation: isActive ? 8 : 2,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -427,9 +412,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                           : const BorderSide(color: Colors.transparent, width: 0),
                     ),
                   ),
-                  onPressed: () => _changeStatus(status),
+                  onPressed: () => _changeStatus(statusMap),
                   child: Text(
-                    status,
+                    statusMap['label']!,
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: isActive ? FontWeight.w900 : FontWeight.bold,
