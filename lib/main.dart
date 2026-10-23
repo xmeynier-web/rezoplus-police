@@ -4,7 +4,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 
 // ---------------------------------------------------------------------------
 // DÉMARRAGE
@@ -124,7 +123,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Champ totalement vide au démarrage, guidé par le hintText
   final TextEditingController _controller = TextEditingController();
 
   void _startService() {
@@ -162,7 +160,7 @@ class _LoginScreenState extends State<LoginScreen> {
             TextField(
               controller: _controller,
               decoration: const InputDecoration(
-                hintText: 'Ex: ALPHA-1, Patrouille-01...',
+                hintText: 'Ex: ALPHA, Patrouille-01...',
                 border: OutlineInputBorder(),
               ),
               onSubmitted: (_) => _startService(),
@@ -202,7 +200,10 @@ class PatrouilleHomePage extends StatefulWidget {
 
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
-  StreamSubscription<Position>? _gpsSub;
+
+  // Coordonnées fixes de base (12 Rue Roger Salengro, 94260 Fresnes)[cite: 7]
+  static const double _fixedLatitude = 48.755578;
+  static const double _fixedLongitude = 2.321367;
 
   final List<String> _statusList = [
     'En Patrouille',
@@ -233,68 +234,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
   bool _isOnline = true;
   bool _sosActive = false;
-  Position? _currentPosition;
-  String _gpsMessage = 'Recherche du signal GPS...';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initGPS();
       _sendDataToFirebase();
     });
-  }
-
-  @override
-  void dispose() {
-    _gpsSub?.cancel();
-    super.dispose();
-  }
-
-  // ----------------------------- GPS ---------------------------------------
-  Future<void> _initGPS() async {
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        _setGpsMessage('GPS désactivé sur le téléphone');
-        return;
-      }
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        _setGpsMessage('Permission de localisation refusée');
-        return;
-      }
-
-      final LocationSettings settings = defaultTargetPlatform == TargetPlatform.android
-          ? AndroidSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 10,
-              foregroundNotificationConfig: const ForegroundNotificationConfig(
-                notificationTitle: 'Rezo+ Patrouille',
-                notificationText: 'Géolocalisation active',
-                enableWakeLock: true,
-              ),
-            )
-          : const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10);
-
-      _gpsSub = Geolocator.getPositionStream(locationSettings: settings).listen(
-        (position) {
-          if (!mounted) return;
-          setState(() => _currentPosition = position);
-          if (_isOnline) _sendDataToFirebase();
-        },
-        onError: (Object e) => _setGpsMessage('Erreur GPS : $e'),
-      );
-    } catch (e) {
-      _setGpsMessage('GPS indisponible : $e');
-    }
-  }
-
-  void _setGpsMessage(String msg) {
-    if (mounted) setState(() => _gpsMessage = msg);
   }
 
   // --------------------------- FIREBASE ------------------------------------
@@ -321,16 +267,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   }
 
   Future<void> _sendDataToFirebase() async {
-    if (_currentPosition == null && _isOnline) {
-      try {
-        _currentPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      } catch (_) {}
-    }
-
     try {
       await _dbRef.child('units/${widget.unitId}').set({
-        'latitude': _currentPosition?.latitude ?? 0.0,
-        'longitude': _currentPosition?.longitude ?? 0.0,
+        'latitude': _fixedLatitude,
+        'longitude': _fixedLongitude,
         'status': _currentStatus,
         'statusColor': _getStatusColorHex(_currentStatus),
         'equipment': _equipment,
@@ -409,7 +349,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final pos = _currentPosition;
     return Scaffold(
       appBar: AppBar(
         title: Text('Unité : ${widget.unitId}'),
@@ -442,7 +381,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
             ),
             const SizedBox(height: 10),
 
-            // 2. Statut actuel & GPS
+            // 2. Statut actuel & Localisation fixe
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -456,9 +395,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
                   const SizedBox(height: 4),
                   Text(_currentStatus.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 4),
-                  Text(
-                    pos != null ? 'GPS : ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}' : _gpsMessage,
-                    style: const TextStyle(fontSize: 11, color: Colors.white60),
+                  const Text(
+                    'Position : 12 Rue Roger Salengro, Fresnes',
+                    style: TextStyle(fontSize: 11, color: Colors.white60),
                   ),
                 ],
               ),
