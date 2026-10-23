@@ -422,4 +422,146 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   }
 
   @override
-  Widget build(BuildContext context
+  Widget build(BuildContext context) {
+    final bool isSosActive = (_currentStatusMap['code'] == 'SOS_ACTIF');
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Unité : ${widget.unitId}'),
+        backgroundColor: isSosActive ? Colors.red[900] : null,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _toggleService,
+            tooltip: 'Déconnexion',
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 1. Bouton SOS d'urgence visible immédiatement en haut
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isSosActive ? Colors.orange[800] : Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: () {
+                final targetStatus = isSosActive
+                    ? _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE')
+                    : _statusList.firstWhere((s) => s['code'] == 'SOS_ACTIF');
+                _changeStatus(targetStatus);
+              },
+              icon: const Icon(Icons.warning, size: 24, color: Colors.white),
+              label: Text(
+                isSosActive ? 'DÉSACTIVER L\'ALERTE SOS' : 'DÉCLENCHER UN SOS',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // 2. Statut actuel & Localisation fixe
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _getStatusColor(_currentStatusMap['code']!),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Column(
+                children: [
+                  const Text('STATUT OPÉRATIONNEL ACTUEL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
+                  const SizedBox(height: 4),
+                  Text(_currentStatusMap['label']!.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Position : 12 Rue Roger Salengro, Fresnes',
+                    style: TextStyle(fontSize: 11, color: Colors.white60),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // 3. Affichage conditionnel des ordres de mission du CSU
+            _buildDispatchesBox(),
+            const SizedBox(height: 8),
+
+            // 4. Grille des boutons de statuts rapides (avec surbrillance active)
+            const Text('Modifier le statut :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 2.8,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              children: _statusList.where((s) => s['code'] != 'SOS_ACTIF').map((statusMap) {
+                final bool isActive = (statusMap['code'] == _currentStatusMap['code']);
+                return ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _getStatusColor(statusMap['code']!),
+                    elevation: isActive ? 8 : 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: isActive
+                          ? const BorderSide(color: Colors.white, width: 3)
+                          : const BorderSide(color: Colors.transparent, width: 0),
+                    ),
+                  ),
+                  onPressed: () => _changeStatus(statusMap),
+                  child: Text(
+                    statusMap['label']!,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: isActive ? FontWeight.w900 : FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }).toList(),
+            ),
+            const Divider(height: 24),
+
+            // 5. Contrôle du Matériel Embarqué
+            const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              childAspectRatio: 3.2,
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 6,
+              children: _equipment.keys.map((item) {
+                return Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.blue.withOpacity(0.4)),
+                    borderRadius: BorderRadius.circular(6),
+                    color: Colors.black12,
+                  ),
+                  child: CheckboxListTile(
+                    title: Text(item, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    value: _equipment[item],
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    onChanged: (val) {
+                      setState(() {
+                        _equipment[item] = val ?? false;
+                      });
+                      _sendDataToFirebase();
+                    },
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
