@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.directive.dart' if (dart.library.html) '';
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
@@ -249,11 +248,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     super.dispose();
   }
 
-  // Empêche l'application de se couper passivement en arrière-plan
+  // Maintient la session active et renvoie les données si l'application revient au premier plan
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // S'assure de renvoyer le statut dès que l'écran se rallume
       _sendDataToFirebase();
     }
   }
@@ -340,7 +338,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  /// Widget unifié écoutant à la fois 'dispatches' et 'messages' du CSU
+  /// Widget unifié écoutant 'dispatches' et 'messages' du CSU
   Widget _buildDispatchesBox() {
     return StreamBuilder<DatabaseEvent>(
       stream: _dbRef.child('dispatches').onValue,
@@ -350,7 +348,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
           builder: (context, messageSnap) {
             final List<Map<dynamic, dynamic>> activeItems = [];
 
-            // 1. Analyse du nœud 'dispatches'
             if (dispatchSnap.hasData && dispatchSnap.data?.snapshot.value != null) {
               final raw = dispatchSnap.data!.snapshot.value;
               if (raw is Map) {
@@ -366,7 +363,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
               }
             }
 
-            // 2. Analyse du nœud 'messages'
             if (messageSnap.hasData && messageSnap.data?.snapshot.value != null) {
               final rawMsg = messageSnap.data!.snapshot.value;
               if (rawMsg is Map) {
@@ -383,7 +379,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
             }
 
             if (activeItems.isEmpty) {
-              return const SizedBox.shrink(); // Masqué si aucune mission/message
+              return const SizedBox.shrink();
             }
 
             return Container(
