@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.directive.dart' if (dart.library.html) '';
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
@@ -198,7 +199,7 @@ class PatrouilleHomePage extends StatefulWidget {
   State<PatrouilleHomePage> createState() => _PatrouilleHomePageState();
 }
 
-class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
+class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBindingObserver {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
   // Position fixe (12 Rue Roger Salengro, Fresnes)
@@ -236,9 +237,25 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _sendDataToFirebase();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Empêche l'application de se couper passivement en arrière-plan
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // S'assure de renvoyer le statut dès que l'écran se rallume
+      _sendDataToFirebase();
+    }
   }
 
   // --------------------------- FIREBASE ------------------------------------
@@ -323,99 +340,117 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
     }
   }
 
-  /// Widget affichant les ordres de mission / interventions (visible uniquement si une mission existe)
+  /// Widget unifié écoutant à la fois 'dispatches' et 'messages' du CSU
   Widget _buildDispatchesBox() {
     return StreamBuilder<DatabaseEvent>(
       stream: _dbRef.child('dispatches').onValue,
-      builder: (context, snapshot) {
-        if (snapshot.hasError || !snapshot.hasData) {
-          return const SizedBox.shrink();
-        }
-        final raw = snapshot.data?.snapshot.value;
-        if (raw == null) {
-          return const SizedBox.shrink();
-        }
+      builder: (context, dispatchSnap) {
+        return StreamBuilder<DatabaseEvent>(
+          stream: _dbRef.child('messages').onValue,
+          builder: (context, messageSnap) {
+            final List<Map<dynamic, dynamic>> activeItems = [];
 
-        final List<Map<dynamic, dynamic>> missions = [];
-        if (raw is Map) {
-          raw.forEach((key, value) {
-            if (value is Map) {
-              final m = Map.from(value);
-              m['id'] = key;
-              if (m['unit'] == null || m['unit'] == widget.unitId || m['unit'] == 'Toutes') {
-                missions.add(m);
+            // 1. Analyse du nœud 'dispatches'
+            if (dispatchSnap.hasData && dispatchSnap.data?.snapshot.value != null) {
+              final raw = dispatchSnap.data!.snapshot.value;
+              if (raw is Map) {
+                raw.forEach((key, value) {
+                  if (value is Map) {
+                    final m = Map.from(value);
+                    m['id'] = key;
+                    if (m['unit'] == null || m['unit'] == widget.unitId || m['unit'] == 'Toutes') {
+                      activeItems.add(m);
+                    }
+                  }
+                });
               }
             }
-          });
-        }
 
-        if (missions.isEmpty) {
-          return const SizedBox.shrink();
-        }
+            // 2. Analyse du nœud 'messages'
+            if (messageSnap.hasData && messageSnap.data?.snapshot.value != null) {
+              final rawMsg = messageSnap.data!.snapshot.value;
+              if (rawMsg is Map) {
+                rawMsg.forEach((key, value) {
+                  if (value is Map) {
+                    final m = Map.from(value);
+                    m['id'] = key;
+                    if (m['unit'] == null || m['unit'] == widget.unitId || m['unit'] == 'Toutes') {
+                      activeItems.add(m);
+                    }
+                  }
+                });
+              }
+            }
 
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.orange.withOpacity(0.6)),
-            borderRadius: BorderRadius.circular(8),
-            color: Colors.black26,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                color: Colors.orange.shade900.withOpacity(0.4),
-                child: const Text(
-                  'MISSION / INTERVENTION EN COURS (CSU)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orangeAccent),
-                ),
+            if (activeItems.isEmpty) {
+              return const SizedBox.shrink(); // Masqué si aucune mission/message
+            }
+
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.orange.withOpacity(0.6)),
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.black26,
               ),
-              const SizedBox(height: 6),
-              ...missions.map((mission) {
-                final objet = mission['objet'] ?? 'Intervention';
-                final adresse = mission['adresse'] ?? 'Lieu non spécifié';
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    color: Colors.orange.shade900.withOpacity(0.4),
+                    child: const Text(
+                      'MISSION / MESSAGE CSU EN COURS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orangeAccent),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...activeItems.map((item) {
+                    final objet = item['objet'] ?? item['message'] ?? item['texte'] ?? 'Intervention';
+                    final adresse = item['adresse'] ?? item['lieu'] ?? 'Lieu non spécifié';
 
-                return Container(
-                  margin: const EdgeInsets.symmetric(vertical: 4),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[900],
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Objet : $objet', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)),
-                      const SizedBox(height: 2),
-                      Text('Adresse : $adresse', style: const TextStyle(fontSize: 12, color: Colors.white70)),
-                      const SizedBox(height: 6),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.shade700,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          onPressed: () {
-                            final patrouilleStatus = _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE');
-                            _changeStatus(patrouilleStatus);
-                            _snack('Intervention clôturée avec succès.');
-                          },
-                          icon: const Icon(Icons.check, size: 16),
-                          label: const Text('Fin d\'intervention', style: TextStyle(fontSize: 12)),
-                        ),
+                    return Container(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[900],
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
                       ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Détail : $objet', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)),
+                          const SizedBox(height: 2),
+                          Text('Adresse : $adresse', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                          const SizedBox(height: 6),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade700,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () {
+                                final patrouilleStatus = _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE');
+                                _changeStatus(patrouilleStatus);
+                                _snack('Intervention clôturée avec succès.');
+                              },
+                              icon: const Icon(Icons.check, size: 16),
+                              label: const Text('Fin d\'intervention', style: TextStyle(fontSize: 12)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -433,7 +468,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: _toggleService,
-            tooltip: 'Déconnexion',
+            tooltip: 'Déconnexion (Fin de service)',
           ),
         ],
       ),
@@ -485,7 +520,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
             ),
             const SizedBox(height: 8),
 
-            // 3. Affichage conditionnel des ordres de mission du CSU
+            // 3. Affichage conditionnel des missions et messages du CSU
             _buildDispatchesBox(),
             const SizedBox(height: 8),
 
