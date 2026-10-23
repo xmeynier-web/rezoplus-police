@@ -336,4 +336,90 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
           return const SizedBox.shrink();
         }
 
-        final List<Map<dynamic
+        final List<Map<dynamic, dynamic>> missions = [];
+        if (raw is Map) {
+          raw.forEach((key, value) {
+            if (value is Map) {
+              final m = Map.from(value);
+              m['id'] = key;
+              if (m['unit'] == null || m['unit'] == widget.unitId || m['unit'] == 'Toutes') {
+                missions.add(m);
+              }
+            }
+          });
+        }
+
+        if (missions.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.orange.withOpacity(0.6)),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.black26,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                color: Colors.orange.shade900.withOpacity(0.4),
+                child: const Text(
+                  'MISSION / INTERVENTION EN COURS (CSU)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orangeAccent),
+                ),
+              ),
+              const SizedBox(height: 6),
+              ...missions.map((mission) {
+                final objet = mission['objet'] ?? 'Intervention';
+                final adresse = mission['adresse'] ?? 'Lieu non spécifié';
+
+                return Container(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[900],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Objet : $objet', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)),
+                      const SizedBox(height: 2),
+                      Text('Adresse : $adresse', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+                      const SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade700,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () {
+                            final patrouilleStatus = _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE');
+                            _changeStatus(patrouilleStatus);
+                            _snack('Intervention clôturée avec succès.');
+                          },
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text('Fin d\'intervention', style: TextStyle(fontSize: 12)),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context
