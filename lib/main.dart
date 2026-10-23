@@ -114,7 +114,7 @@ class _BootScreenState extends State<BootScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// ÉCRAN DE CONNEXION / INDICATIF RADIO
+// ÉCRAN DE CONNEXION / INDICATIF RADIO (Vide par défaut)
 // ---------------------------------------------------------------------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -124,11 +124,17 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _controller = TextEditingController(text: 'Patrouille-01');
+  // Champ totalement vide au démarrage, guidé par le hintText
+  final TextEditingController _controller = TextEditingController();
 
   void _startService() {
     final unitId = _controller.text.trim();
-    if (unitId.isEmpty) return;
+    if (unitId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez entrer un indicatif radio valide.')),
+      );
+      return;
+    }
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => PatrouilleHomePage(unitId: unitId)),
@@ -159,6 +165,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 hintText: 'Ex: ALPHA-1, Patrouille-01...',
                 border: OutlineInputBorder(),
               ),
+              onSubmitted: (_) => _startService(),
             ),
             const SizedBox(height: 24),
             SizedBox(
@@ -458,7 +465,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
             ),
             const SizedBox(height: 12),
 
-            // 3. Grille des boutons de statuts rapides
+            // 3. Grille des boutons de statuts rapides (avec surbrillance active)
             const Text('Modifier le statut :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             GridView.count(
@@ -469,15 +476,26 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> {
               mainAxisSpacing: 8,
               crossAxisSpacing: 8,
               children: _statusList.where((s) => s != 'SOS ACTIF').map((status) {
+                final bool isActive = (status == _currentStatus);
                 return ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _getStatusColor(status),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    elevation: isActive ? 8 : 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: isActive
+                          ? const BorderSide(color: Colors.white, width: 3)
+                          : const BorderSide(color: Colors.transparent, width: 0),
+                    ),
                   ),
                   onPressed: () => _changeStatus(status),
                   child: Text(
                     status,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: isActive ? FontWeight.w900 : FontWeight.bold,
+                      fontSize: 13,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 );
