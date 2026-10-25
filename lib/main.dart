@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
 // ---------------------------------------------------------------------------
 // DÉMARRAGE
@@ -188,7 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// ÉCRAN PRINCIPAL
+// ÉCRAN PRINCIPAL AVEC GÉOLOCALISATION ACTIVE ET STATUTS CSU
 // ---------------------------------------------------------------------------
 class PatrouilleHomePage extends StatefulWidget {
   final String unitId;
@@ -201,16 +202,20 @@ class PatrouilleHomePage extends StatefulWidget {
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBindingObserver {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  // Position fixe (12 Rue Roger Salengro, Fresnes)
-  static const double _fixedLatitude = 48.755578;
-  static const double _fixedLongitude = 2.321367;
+  // Position par défaut (Fresnes) en attendant le premier fix GPS
+  double _currentLatitude = 48.755578;
+  double _currentLongitude = 2.321367;
+  String _locationStatus = "Recherche GPS...";
 
-  // Liste des statuts avec les codes exacts qu'attend le CSU
+  StreamSubscription<Position>? _positionStreamSubscription;
+
+  // Liste des statuts avec les codes techniques stricts correspondants au CSU
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
     {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#009688'},
     {'label': 'Transport', 'code': 'TRANSPORT_ESCORTE', 'hex': '#00a8ff'},
+    {'label': 'Escale', 'code': 'ESCALE_TECHNIQUE', 'hex': '#e91e63'},
     {'label': 'Retour au poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
     {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
     {'label': 'SOS ACTIF', 'code': 'SOS_ACTIF', 'hex': '#ff2222'},
@@ -237,13 +242,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _sendDataToFirebase();
-    });
+    _initGeolocationAndTracking();
   }
 
   @override
   void dispose() {
+    _positionStreamSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -255,13 +259,72 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
+  // --------------------------- GÉOLOCALISATION GPS --------------------------
+  Future<void> _initGeolocationAndTracking() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _locationStatus = "GPS désactivé (Position par défaut)";
+      });
+      _sendDataToFirebase();
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          _locationStatus = "Permissions GPS refusées";
+        });
+        _sendDataToFirebase();
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      setState(() {
+        _locationStatus = "Permissions GPS refusées définitivement";
+      });
+      _sendDataToFirebase();
+      return;
+    }
+
+    const LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 2, // Mise à jour dès 2 mètres de déplacement
+    );
+
+    _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+      (Position position) {
+        setState(() {
+          _currentLatitude = position.latitude;
+          _currentLongitude = position.longitude;
+          _locationStatus = "GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+        });
+        _sendDataToFirebase();
+      },
+      onError: (e) {
+        debugPrint("Erreur flux GPS : $e");
+        setState(() {
+          _locationStatus = "Erreur de signal GPS";
+        });
+      },
+    );
+
+    _sendDataToFirebase();
+  }
+
   // --------------------------- FIREBASE ------------------------------------
   Future<void> _sendDataToFirebase() async {
     try {
       await _dbRef.child('units/${widget.unitId}').set({
-        'latitude': _fixedLatitude,
-        'longitude': _fixedLongitude,
-        'status': _currentStatusMap['code'], // Code strict attendu par le CSU
+        'latitude': _currentLatitude,
+        'longitude': _currentLongitude,
+        'status': _currentStatusMap['code'],
         'statusLabel': _currentStatusMap['label'],
         'statusColor': _currentStatusMap['hex'],
         'equipment': _equipment,
@@ -299,6 +362,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     );
 
     if (ok == true) {
+      _positionStreamSubscription?.cancel();
       try {
         await _dbRef.child('units/${widget.unitId}').remove();
       } catch (_) {}
@@ -326,6 +390,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         return Colors.teal.shade700;
       case 'TRANSPORT_ESCORTE':
         return Colors.blue.shade700;
+      case 'ESCALE_TECHNIQUE':
+        return Colors.pink.shade700;
       case 'RETOUR_POSTE':
         return Colors.purple.shade700;
       case 'INDISPONIBLE':
@@ -378,7 +444,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
             ),
             const SizedBox(height: 10),
 
-            // 2. Statut actuel & Localisation fixe
+            // 2. Statut actuel & Localisation GPS active
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -392,9 +458,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                   const SizedBox(height: 4),
                   Text(_currentStatusMap['label']!.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Position : 12 Rue Roger Salengro, Fresnes',
-                    style: TextStyle(fontSize: 11, color: Colors.white60),
+                  Text(
+                    _locationStatus,
+                    style: const TextStyle(fontSize: 11, color: Colors.white60),
                   ),
                 ],
               ),
