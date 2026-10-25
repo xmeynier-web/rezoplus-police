@@ -205,15 +205,15 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   static const double _fixedLatitude = 48.755578;
   static const double _fixedLongitude = 2.321367;
 
-  // Liste des statuts avec code technique normalisé pour le CSU
+  // Liste des statuts avec libellé identique pour le CSU et l'application
   final List<Map<String, String>> _statusList = [
-    {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
-    {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
-    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#009688'},
-    {'label': 'Transport', 'code': 'TRANSPORT', 'hex': '#00a8ff'},
-    {'label': 'Retour au poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
-    {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
-    {'label': 'SOS ACTIF', 'code': 'SOS_ACTIF', 'hex': '#ff2222'},
+    {'label': 'En Patrouille', 'code': 'En Patrouille', 'hex': '#22bb33'},
+    {'label': 'En Intervention', 'code': 'En Intervention', 'hex': '#ff8800'},
+    {'label': 'Contrôle PR', 'code': 'Contrôle PR', 'hex': '#009688'},
+    {'label': 'Transport', 'code': 'Transport', 'hex': '#00a8ff'},
+    {'label': 'Retour au poste', 'code': 'Retour au poste', 'hex': '#9c27b0'},
+    {'label': 'Indisponible', 'code': 'Indisponible', 'hex': '#777777'},
+    {'label': 'SOS ACTIF', 'code': 'SOS ACTIF', 'hex': '#ff2222'},
   ];
 
   late Map<String, String> _currentStatusMap = _statusList[0];
@@ -265,7 +265,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         'statusLabel': _currentStatusMap['label'],
         'statusColor': _currentStatusMap['hex'],
         'equipment': _equipment,
-        'sos': _currentStatusMap['code'] == 'SOS_ACTIF',
+        'sos': _currentStatusMap['code'] == 'SOS ACTIF',
         'timestamp': ServerValue.timestamp,
       });
     } catch (e) {
@@ -278,7 +278,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       _currentStatusMap = statusMap;
     });
     await _sendDataToFirebase();
-    if (statusMap['code'] == 'SOS_ACTIF') {
+    if (statusMap['code'] == 'SOS ACTIF') {
       _snack('ALERTE SOS DÉCLENCHÉE !');
     } else {
       _snack('Statut mis à jour : ${statusMap['label']}');
@@ -318,19 +318,19 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   // ------------------------------ UI ---------------------------------------
   Color _getStatusColor(String code) {
     switch (code) {
-      case 'EN_PATROUILLE':
+      case 'En Patrouille':
         return Colors.green.shade700;
-      case 'EN_INTERVENTION':
+      case 'En Intervention':
         return Colors.orange.shade800;
-      case 'CONTROLE_PR':
+      case 'Contrôle PR':
         return Colors.teal.shade700;
-      case 'TRANSPORT':
+      case 'Transport':
         return Colors.blue.shade700;
-      case 'RETOUR_POSTE':
+      case 'Retour au poste':
         return Colors.purple.shade700;
-      case 'INDISPONIBLE':
+      case 'Indisponible':
         return Colors.grey.shade800;
-      case 'SOS_ACTIF':
+      case 'SOS ACTIF':
         return Colors.red.shade900;
       default:
         return Colors.grey.shade700;
@@ -339,7 +339,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   @override
   Widget build(BuildContext context) {
-    final bool isSosActive = (_currentStatusMap['code'] == 'SOS_ACTIF');
+    final bool isSosActive = (_currentStatusMap['code'] == 'SOS ACTIF');
 
     return Scaffold(
       appBar: AppBar(
@@ -366,8 +366,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
               ),
               onPressed: () {
                 final targetStatus = isSosActive
-                    ? _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE')
-                    : _statusList.firstWhere((s) => s['code'] == 'SOS_ACTIF');
+                    ? _statusList.firstWhere((s) => s['code'] == 'En Patrouille')
+                    : _statusList.firstWhere((s) => s['code'] == 'SOS ACTIF');
                 _changeStatus(targetStatus);
               },
               icon: const Icon(Icons.warning, size: 24, color: Colors.white),
@@ -411,7 +411,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
               childAspectRatio: 2.8,
               mainAxisSpacing: 8,
               crossAxisSpacing: 8,
-              children: _statusList.where((s) => s['code'] != 'SOS_ACTIF').map((statusMap) {
+              children: _statusList.where((s) => s['code'] != 'SOS ACTIF').map((statusMap) {
                 final bool isActive = (statusMap['code'] == _currentStatusMap['code']);
                 return ElevatedButton(
                   style: ElevatedButton.styleFrom(
