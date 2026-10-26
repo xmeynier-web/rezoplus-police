@@ -383,20 +383,19 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     // 3. Flux continu optimisé pour Crosscall (AndroidSettings + WakeLock)
     final LocationSettings locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // Mis à jour tous les 5 mètres
+      distanceFilter: 5,
       intervalDuration: const Duration(seconds: 5),
       foregroundNotificationConfig: const ForegroundNotificationConfig(
         notificationTitle: "Rezo+ en service",
         notificationText: "Le suivi GPS de la patrouille est actif.",
         enableWakeLock: true,
-        wakeLockTimeOut: 3600000,
       ),
       forceLocationManager: true,
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
       (Position position) {
-        _resetWatchdog(); // Réarmement du watchdog
+        _resetWatchdog();
         setState(() {
           _currentLatitude = position.latitude;
           _currentLongitude = position.longitude;
