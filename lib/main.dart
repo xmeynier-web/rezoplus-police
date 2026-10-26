@@ -191,13 +191,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   Map<dynamic, dynamic>? _activeMission;
 
-  // Mise à jour des couleurs : Contrôle PR en jaune (#f1c40f) et Attente Fourrière en teal (#009688)
+  // Liste complète des statuts avec codes couleurs distincts et libellés sur deux lignes
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
-    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#f1c40f'},
+    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#f1c40f'}, // Jaune ambré
     {'label': 'Transport\nEscorte', 'code': 'TRANSPORT_ESCORTE', 'hex': '#00a8ff'},
-    {'label': 'Attente\nFourrière', 'code': 'ATTENTE_FOURRIERE', 'hex': '#009688'},
+    {'label': 'Attente\nFourrière', 'code': 'ATTENTE_FOURRIERE', 'hex': '#009688'}, // Teal distinct
     {'label': 'Escale\nTechnique', 'code': 'ESCALE_TECHNIQUE', 'hex': '#e91e63'},
     {'label': 'Retour\nau poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
     {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
@@ -218,7 +218,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     WidgetsBinding.instance.addObserver(this);
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initCascadeGeolocation();
+      _initRobustGeolocation();
       _listenToAssignedMissions();
     });
   }
@@ -238,10 +238,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  Future<void> _initCascadeGeolocation() async {
+  // --------------------------- GÉOLOCALISATION ROBUSTE & NATIVE --------------------------
+  Future<void> _initRobustGeolocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      setState(() => _locationStatus = "GPS désactivé dans les réglages Android");
+      setState(() => _locationStatus = "Erreur : GPS désactivé dans Android");
       _snack("Veuillez activer le GPS de votre appareil");
       _sendDataToFirebase();
       return;
@@ -251,48 +252,54 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        setState(() => _locationStatus = "Permission GPS refusée");
+        setState(() => _locationStatus = "Erreur : Permission GPS refusée");
         _sendDataToFirebase();
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      setState(() => _locationStatus = "Permission bloquée (Paramètres requis)");
+      setState(() => _locationStatus = "Erreur : Permission bloquée (Paramètres)");
       _showSettingsPermissionDialog();
       return;
     }
 
-    setState(() => _locationStatus = "Recherche de position (Réseau/GPS)...");
+    setState(() => _locationStatus = "Recherche de position (Matériel natif)...");
 
+    // 1. Récupération immédiate du cache
     try {
       Position? lastPosition = await Geolocator.getLastKnownPosition();
       if (lastPosition != null) {
         setState(() {
           _currentLatitude = lastPosition.latitude;
           _currentLongitude = lastPosition.longitude;
-          _locationStatus = "Position Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})";
+          _locationStatus = "Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})";
         });
         _sendDataToFirebase();
       }
     } catch (_) {}
 
+    // 2. Fix immédiat forcé via le gestionnaire natif Android
     try {
-      Position networkPos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 4),
+      Position currentPos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 8),
+        forceAndroidLocationManager: true, // Contourne les services Google récalcitrants
       );
       setState(() {
-        _currentLatitude = networkPos.latitude;
-        _currentLongitude = networkPos.longitude;
-        _locationStatus = "Position Réseau Fixée (${networkPos.latitude.toStringAsFixed(4)}, ${networkPos.longitude.toStringAsFixed(4)})";
+        _currentLatitude = currentPos.latitude;
+        _currentLongitude = currentPos.longitude;
+        _locationStatus = "GPS Natif Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})";
       });
       _sendDataToFirebase();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("Échec fix immédiat, bascule flux continu : $e");
+    }
 
+    // 3. Flux continu de position
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 1, 
+      distanceFilter: 1,
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
@@ -306,7 +313,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       },
       onError: (e) {
         debugPrint("Erreur flux GPS : $e");
-        setState(() => _locationStatus = "Erreur de signal GPS");
+        setState(() => _locationStatus = "Perte de signal GPS");
       },
     );
   }
@@ -376,16 +383,18 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
+  // Changement de statut avec forçage de position GPS immédiat
   Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() {
       _currentStatusMap = statusMap;
-      _locationStatus = "Actualisation position (Changement statut)...";
+      _locationStatus = "Actualisation position (Statut)...";
     });
 
     try {
       Position forcedPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 4),
+        forceAndroidLocationManager: true,
       );
       setState(() {
         _currentLatitude = forcedPos.latitude;
@@ -445,9 +454,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     switch (code) {
       case 'EN_PATROUILLE': return Colors.green.shade700;
       case 'EN_INTERVENTION': return Colors.orange.shade800;
-      case 'CONTROLE_PR': return Colors.amber.shade700; // Jaune distinctif
+      case 'CONTROLE_PR': return Colors.amber.shade700;
       case 'TRANSPORT_ESCORTE': return Colors.blue.shade700;
-      case 'ATTENTE_FOURRIERE': return Colors.teal.shade700; // Ancienne couleur de Contrôle PR
+      case 'ATTENTE_FOURRIERE': return Colors.teal.shade700;
       case 'ESCALE_TECHNIQUE': return Colors.pink.shade700;
       case 'RETOUR_POSTE': return Colors.purple.shade700;
       case 'INDISPONIBLE': return Colors.grey.shade800;
