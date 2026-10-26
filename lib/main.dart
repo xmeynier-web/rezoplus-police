@@ -186,7 +186,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   double _currentLatitude = 48.755578; 
   double _currentLongitude = 2.321367;
-  String _locationStatus = "Initialisation du capteur...";
+  String _locationStatus = "Vérification des permissions GPS...";
+  bool _permissionDenied = false;
 
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<DatabaseEvent>? _missionSubscription;
@@ -258,6 +259,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _sendDataToFirebase();
+      // Revérifie les permissions au retour au premier plan
+      _initRobustGeolocation();
     }
   }
 
@@ -307,7 +310,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- GÉOLOCALISATION ROBUSTE & WATCHDOG --------------------------
+  // --------------------------- GÉOLOCALISATION ROBUSTE & PERMISSIONS --------------------------
   void _resetWatchdog() {
     _watchdogTimer?.cancel();
     _watchdogTimer = Timer(const Duration(seconds: 30), () {
@@ -326,9 +329,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   Future<void> _initRobustGeolocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      setState(() => _locationStatus = "Erreur : GPS désactivé");
-      _snack("Veuillez activer le GPS de votre appareil");
-      _sendDataToFirebase();
+      setState(() {
+        _locationStatus = "Erreur : GPS désactivé sur le terminal";
+        _permissionDenied = true;
+      });
+      _snack("Veuillez activer le GPS dans les paramètres du téléphone");
       return;
     }
 
@@ -336,19 +341,27 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        setState(() => _locationStatus = "Erreur : Permission GPS refusée");
-        _sendDataToFirebase();
+        setState(() {
+          _locationStatus = "Permission GPS refusée";
+          _permissionDenied = true;
+        });
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      setState(() => _locationStatus = "Erreur : Permission bloquée");
+      setState(() {
+        _locationStatus = "Permission GPS bloquée définitivement";
+        _permissionDenied = true;
+      });
       _showSettingsPermissionDialog();
       return;
     }
 
-    setState(() => _locationStatus = "Recherche de position (Crosscall)...");
+    setState(() {
+      _permissionDenied = false;
+      _locationStatus = "Recherche de position (Crosscall)...";
+    });
 
     // 1. Cache initial
     try {
@@ -380,7 +393,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       debugPrint("Échec fix immédiat : $e");
     }
 
-    // 3. Flux continu optimisé pour Crosscall (AndroidSettings + WakeLock)
+    // 3. Flux continu optimisé pour Crosscall
     final LocationSettings locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 5,
@@ -421,8 +434,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       builder: (ctx) => AlertDialog(
         title: const Text('Autorisation GPS requise'),
         content: const Text(
-          'Les permissions de géolocalisation ont été refusées de manière permanente. '
-          'Veuillez autoriser la localisation dans les paramètres.',
+          'Les permissions de géolocalisation ont été refusées. '
+          'Veuillez autoriser la localisation dans les paramètres de l\'application.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
@@ -588,6 +601,30 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Bouton d'activation d'urgence des permissions si bloqué
+            if (_permissionDenied) ...[
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.amber.shade800,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () async {
+                  LocationPermission p = await Geolocator.requestPermission();
+                  if (p == LocationPermission.deniedForever) {
+                    Geolocator.openAppSettings();
+                  } else {
+                    _initRobustGeolocation();
+                  }
+                },
+                icon: const Icon(Icons.location_on, color: Colors.white),
+                label: const Text(
+                  'AUTORISER LA GÉOLOCALISATION MAINTENANT',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: isSosActive ? Colors.orange[800] : Colors.red,
