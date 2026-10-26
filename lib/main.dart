@@ -191,12 +191,14 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   Map<dynamic, dynamic>? _activeMission;
 
+  // Liste des statuts avec "Attente Fourrière" inséré avant "Escale Technique"
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
     {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#009688'},
-    {'label': 'Transport', 'code': 'TRANSPORT_ESCORTE', 'hex': '#00a8ff'},
-    {'label': 'Escale', 'code': 'ESCALE_TECHNIQUE', 'hex': '#e91e63'},
+    {'label': 'Transport\nEscorte', 'code': 'TRANSPORT_ESCORTE', 'hex': '#00a8ff'},
+    {'label': 'Attente\nFourrière', 'code': 'ATTENTE_FOURRIERE', 'hex': '#d35400'},
+    {'label': 'Escale\nTechnique', 'code': 'ESCALE_TECHNIQUE', 'hex': '#e91e63'},
     {'label': 'Retour\nau poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
     {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
     {'label': 'SOS ACTIF', 'code': 'SOS_ACTIF', 'hex': '#ff2222'},
@@ -365,7 +367,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         'latitude': _currentLatitude,
         'longitude': _currentLongitude,
         'status': _currentStatusMap['code'],
-        'statusLabel': _currentStatusMap['label'],
+        'statusLabel': _currentStatusMap['label']?.replaceAll('\n', ' '),
         'statusColor': _currentStatusMap['hex'],
         'equipment': _equipment,
         'sos': _currentStatusMap['code'] == 'SOS_ACTIF',
@@ -437,6 +439,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       case 'EN_INTERVENTION': return Colors.orange.shade800;
       case 'CONTROLE_PR': return Colors.teal.shade700;
       case 'TRANSPORT_ESCORTE': return Colors.blue.shade700;
+      case 'ATTENTE_FOURRIERE': return Colors.deepOrange.shade700;
       case 'ESCALE_TECHNIQUE': return Colors.pink.shade700;
       case 'RETOUR_POSTE': return Colors.purple.shade700;
       case 'INDISPONIBLE': return Colors.grey.shade800;
