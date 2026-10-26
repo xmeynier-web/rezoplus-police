@@ -182,7 +182,7 @@ class PatrouilleHomePage extends StatefulWidget {
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBindingObserver {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  double _currentLatitude = 48.755578; // Valeur par défaut (Fresnes)
+  double _currentLatitude = 48.755578; 
   double _currentLongitude = 2.321367;
   String _locationStatus = "Recherche de position...";
 
@@ -191,7 +191,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   Map<dynamic, dynamic>? _activeMission;
 
-  // Libellés sur deux lignes pour les statuts longs
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
@@ -237,7 +236,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- GÉOLOCALISATION HYBRIDE & ROBUSTE --------------------------
   Future<void> _initRobustGeolocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -265,7 +263,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
     setState(() => _locationStatus = "Recherche de position (GPS / Réseau)...");
 
-    // 1. Tenter d'obtenir immédiatement la dernière position connue (très rapide)
     try {
       Position? lastPosition = await Geolocator.getLastKnownPosition();
       if (lastPosition != null) {
@@ -278,7 +275,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       }
     } catch (_) {}
 
-    // 2. Forcer une acquisition immédiate de la position courante
     try {
       Position currentPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -291,10 +287,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       });
       _sendDataToFirebase();
     } catch (e) {
-      debugPrint("Délai GPS dépassé, utilisation du flux continu : $e");
+      debugPrint("Délai GPS dépassé : $e");
     }
 
-    // 3. Écoute continue du flux (avec distanceFilter abaissé à 1 mètre pour réagir plus vite)
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 1, 
@@ -384,7 +379,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() => _currentStatusMap = statusMap);
     await _sendDataToFirebase();
-    _snack(statusMap['code'] == 'SOS_ACTIF' ? 'ALERTE SOS DÉCLENCHÉE !' : 'Statut : ${statusMap['label'].replaceAll('\n', ' ')}');
+    _snack(statusMap['code'] == 'SOS_ACTIF' ? 'ALERTE SOS DÉCLENCHÉE !' : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}');
   }
 
   Future<void> _endMission() async {
@@ -539,7 +534,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
             const Text('Modifier le statut :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             
-            // Grille des statuts avec support multi-lignes (maxLines: 2)
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
