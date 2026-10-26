@@ -184,14 +184,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   double _currentLatitude = 48.755578; 
   double _currentLongitude = 2.321367;
-  String _locationStatus = "Recherche de position...";
+  String _locationStatus = "Initialisation du capteur...";
 
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<DatabaseEvent>? _missionSubscription;
 
   Map<dynamic, dynamic>? _activeMission;
 
-  // Liste des statuts avec "Attente Fourrière" inséré avant "Escale Technique"
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
@@ -218,7 +217,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     WidgetsBinding.instance.addObserver(this);
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initRobustGeolocation();
+      _initCascadeGeolocation();
       _listenToAssignedMissions();
     });
   }
@@ -238,10 +237,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  Future<void> _initRobustGeolocation() async {
+  Future<void> _initCascadeGeolocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      setState(() => _locationStatus = "GPS désactivé dans les réglages");
+      setState(() => _locationStatus = "GPS désactivé dans les réglages Android");
       _snack("Veuillez activer le GPS de votre appareil");
       _sendDataToFirebase();
       return;
@@ -263,7 +262,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       return;
     }
 
-    setState(() => _locationStatus = "Recherche de position (GPS / Réseau)...");
+    setState(() => _locationStatus = "Recherche de position (Réseau/GPS)...");
 
     try {
       Position? lastPosition = await Geolocator.getLastKnownPosition();
@@ -271,26 +270,24 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         setState(() {
           _currentLatitude = lastPosition.latitude;
           _currentLongitude = lastPosition.longitude;
-          _locationStatus = "Position OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})";
+          _locationStatus = "Position Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})";
         });
         _sendDataToFirebase();
       }
     } catch (_) {}
 
     try {
-      Position currentPos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
+      Position networkPos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 4),
       );
       setState(() {
-        _currentLatitude = currentPos.latitude;
-        _currentLongitude = currentPos.longitude;
-        _locationStatus = "GPS Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})";
+        _currentLatitude = networkPos.latitude;
+        _currentLongitude = networkPos.longitude;
+        _locationStatus = "Position Réseau Fixée (${networkPos.latitude.toStringAsFixed(4)}, ${networkPos.longitude.toStringAsFixed(4)})";
       });
       _sendDataToFirebase();
-    } catch (e) {
-      debugPrint("Délai GPS dépassé : $e");
-    }
+    } catch (_) {}
 
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
@@ -378,24 +375,38 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
+  // --------------------------- CHANGEMENT DE STATUT + FORÇAGE GPS --------------------------
   Future<void> _changeStatus(Map<String, String> statusMap) async {
-    setState(() => _currentStatusMap = statusMap);
+    setState(() {
+      _currentStatusMap = statusMap;
+      _locationStatus = "Actualisation position (Changement statut)...";
+    });
+
+    // Force une lecture immédiate du GPS/Réseau lors du changement de statut
+    try {
+      Position forcedPos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 4),
+      );
+      setState(() {
+        _currentLatitude = forcedPos.latitude;
+        _currentLongitude = forcedPos.longitude;
+        _locationStatus = "GPS Forcé (${forcedPos.latitude.toStringAsFixed(4)}, ${forcedPos.longitude.toStringAsFixed(4)})";
+      });
+    } catch (_) {
+      // Si le fix immédiat échoue, on garde la dernière position connue
+    }
+
     await _sendDataToFirebase();
     _snack(statusMap['code'] == 'SOS_ACTIF' ? 'ALERTE SOS DÉCLENCHÉE !' : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}');
   }
 
   Future<void> _endMission() async {
     final patrouilleStatus = _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE');
-    setState(() {
-      _currentStatusMap = patrouilleStatus;
-      _activeMission = null;
-    });
-
+    await _changeStatus(patrouilleStatus);
+    
     try {
       await _dbRef.child('units/${widget.unitId}').update({
-        'status': 'EN_PATROUILLE',
-        'statusLabel': 'En Patrouille',
-        'statusColor': '#22bb33',
         'active_mission': null,
       });
       _snack('Intervention clôturée avec succès.');
