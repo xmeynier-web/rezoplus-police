@@ -189,7 +189,7 @@ class _LoginScreenState extends State<LoginScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// ÉCRAN PRINCIPAL AVEC GÉOLOCALISATION ACTIVE ET STATUTS CSU
+// ÉCRAN PRINCIPAL AVEC GÉOLOCALISATION ACTIVE FORCÉE AU DÉMARRAGE
 // ---------------------------------------------------------------------------
 class PatrouilleHomePage extends StatefulWidget {
   final String unitId;
@@ -202,10 +202,10 @@ class PatrouilleHomePage extends StatefulWidget {
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBindingObserver {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  // Position par défaut (Fresnes) en attendant le premier fix GPS
+  // Position par défaut (Fresnes) en attendant le fix GPS
   double _currentLatitude = 48.755578;
   double _currentLongitude = 2.321367;
-  String _locationStatus = "Recherche GPS...";
+  String _locationStatus = "Demande de géolocalisation...";
 
   StreamSubscription<Position>? _positionStreamSubscription;
 
@@ -242,7 +242,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initGeolocationAndTracking();
+    // Demande immédiate des permissions et lancement du GPS au premier affichage
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndRequestPermissionAndStartGPS();
+    });
   }
 
   @override
@@ -260,26 +263,31 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   }
 
   // --------------------------- GÉOLOCALISATION GPS --------------------------
-  Future<void> _initGeolocationAndTracking() async {
+  Future<void> _checkAndRequestPermissionAndStartGPS() async {
     bool serviceEnabled;
     LocationPermission permission;
 
+    // 1. Vérifier si le service de localisation du téléphone est activé
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() {
-        _locationStatus = "GPS désactivé (Position par défaut)";
+        _locationStatus = "GPS désactivé dans les réglages du téléphone";
       });
+      _snack("Veuillez activer le GPS sur votre téléphone");
       _sendDataToFirebase();
       return;
     }
 
+    // 2. Vérifier l'état des permissions
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
+      // Force l'affichage de la popup native Android
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         setState(() {
-          _locationStatus = "Permissions GPS refusées";
+          _locationStatus = "Permission GPS refusée par l'utilisateur";
         });
+        _snack("Permission de localisation refusée");
         _sendDataToFirebase();
         return;
       }
@@ -287,11 +295,17 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
     if (permission == LocationPermission.deniedForever) {
       setState(() {
-        _locationStatus = "Permissions GPS refusées définitivement";
+        _locationStatus = "Permission GPS refusée définitivement (Paramètres requis)";
       });
+      _snack("Activez la localisation manuellement dans les paramètres Android");
       _sendDataToFirebase();
       return;
     }
+
+    // 3. Si tout est OK, démarrage de l'écoute du flux GPS en temps réel
+    setState(() {
+      _locationStatus = "Acquisition du signal GPS...";
+    });
 
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
@@ -315,7 +329,16 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       },
     );
 
-    _sendDataToFirebase();
+    // Tente de récupérer une position immédiate si disponible
+    try {
+      Position initialPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      setState(() {
+        _currentLatitude = initialPosition.latitude;
+        _currentLongitude = initialPosition.longitude;
+        _locationStatus = "GPS Actif (${initialPosition.latitude.toStringAsFixed(4)}, ${initialPosition.longitude.toStringAsFixed(4)})";
+      });
+      _sendDataToFirebase();
+    } catch (_) {}
   }
 
   // --------------------------- FIREBASE ------------------------------------
@@ -461,6 +484,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                   Text(
                     _locationStatus,
                     style: const TextStyle(fontSize: 11, color: Colors.white60),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
