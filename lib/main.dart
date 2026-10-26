@@ -191,12 +191,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   Map<dynamic, dynamic>? _activeMission;
 
+  // Mise à jour des couleurs : Contrôle PR en jaune (#f1c40f) et Attente Fourrière en teal (#009688)
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
-    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#009688'},
+    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#f1c40f'},
     {'label': 'Transport\nEscorte', 'code': 'TRANSPORT_ESCORTE', 'hex': '#00a8ff'},
-    {'label': 'Attente\nFourrière', 'code': 'ATTENTE_FOURRIERE', 'hex': '#d35400'},
+    {'label': 'Attente\nFourrière', 'code': 'ATTENTE_FOURRIERE', 'hex': '#009688'},
     {'label': 'Escale\nTechnique', 'code': 'ESCALE_TECHNIQUE', 'hex': '#e91e63'},
     {'label': 'Retour\nau poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
     {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
@@ -375,14 +376,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- CHANGEMENT DE STATUT + FORÇAGE GPS --------------------------
   Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() {
       _currentStatusMap = statusMap;
       _locationStatus = "Actualisation position (Changement statut)...";
     });
 
-    // Force une lecture immédiate du GPS/Réseau lors du changement de statut
     try {
       Position forcedPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -393,9 +392,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         _currentLongitude = forcedPos.longitude;
         _locationStatus = "GPS Forcé (${forcedPos.latitude.toStringAsFixed(4)}, ${forcedPos.longitude.toStringAsFixed(4)})";
       });
-    } catch (_) {
-      // Si le fix immédiat échoue, on garde la dernière position connue
-    }
+    } catch (_) {}
 
     await _sendDataToFirebase();
     _snack(statusMap['code'] == 'SOS_ACTIF' ? 'ALERTE SOS DÉCLENCHÉE !' : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}');
@@ -448,9 +445,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     switch (code) {
       case 'EN_PATROUILLE': return Colors.green.shade700;
       case 'EN_INTERVENTION': return Colors.orange.shade800;
-      case 'CONTROLE_PR': return Colors.teal.shade700;
+      case 'CONTROLE_PR': return Colors.amber.shade700; // Jaune distinctif
       case 'TRANSPORT_ESCORTE': return Colors.blue.shade700;
-      case 'ATTENTE_FOURRIERE': return Colors.deepOrange.shade700;
+      case 'ATTENTE_FOURRIERE': return Colors.teal.shade700; // Ancienne couleur de Contrôle PR
       case 'ESCALE_TECHNIQUE': return Colors.pink.shade700;
       case 'RETOUR_POSTE': return Colors.purple.shade700;
       case 'INDISPONIBLE': return Colors.grey.shade800;
