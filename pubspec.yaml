@@ -6,10 +6,6 @@ version: 1.0.0+1
 environment:
   sdk: ^3.0.0
 
-# IMPORTANT : si vous avez le pubspec.yaml / pubspec.lock du projet qui
-# compilait (celui de l'APK qui fonctionne), gardez SES versions de
-# firebase_core / firebase_database / geolocator et ne gardez de ce fichier
-# que la structure. Les numéros ci-dessous sont indicatifs.
 dependencies:
   flutter:
     sdk: flutter
@@ -17,6 +13,10 @@ dependencies:
   firebase_core: ^3.8.0
   firebase_database: ^11.2.0
   geolocator: ^13.0.2
+  
+  # Nouvelles dépendances de résilience (Réseau et Buffer persistant)
+  connectivity_plus: ^6.0.5
+  shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:
