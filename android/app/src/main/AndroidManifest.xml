@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
 
     <!-- Suivi GPS écran éteint (service de premier plan, Android 9+ / 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
@@ -35,6 +36,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        
+        <!-- Déclaration indispensable du service Geolocator pour Android 14+ -->
+        <service
+            android:name="com.baseflow.geolocator.GeolocatorService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
         
         <meta-data
             android:name="flutterEmbedding"
