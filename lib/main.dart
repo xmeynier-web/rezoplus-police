@@ -1,10 +1,12 @@
 import 'dart:async';
-
+import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ---------------------------------------------------------------------------
 // DÉMARRAGE
@@ -188,16 +190,22 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<DatabaseEvent>? _missionSubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  Timer? _watchdogTimer;
+
+  // File d'attente persistante pour les trames GPS hors-ligne
+  List<Map<String, dynamic>> _offlineQueue = [];
+  bool _isSyncing = false;
 
   Map<dynamic, dynamic>? _activeMission;
 
-  // Liste complète des statuts avec codes couleurs distincts et libellés sur deux lignes
+  // Liste complète des statuts avec codes couleurs distincts
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
-    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#f1c40f'}, // Jaune ambré
+    {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#f1c40f'},
     {'label': 'Transport\nEscorte', 'code': 'TRANSPORT_ESCORTE', 'hex': '#00a8ff'},
-    {'label': 'Attente\nFourrière', 'code': 'ATTENTE_FOURRIERE', 'hex': '#009688'}, // Teal distinct
+    {'label': 'Attente\nFourrière', 'code': 'ATTENTE_FOURRIERE', 'hex': '#009688'},
     {'label': 'Escale\nTechnique', 'code': 'ESCALE_TECHNIQUE', 'hex': '#e91e63'},
     {'label': 'Retour\nau poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
     {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
@@ -217,6 +225,19 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     
+    // 1. Chargement de la file d'attente persistante et écoute réseau
+    _loadOfflineQueue().then((_) {
+      _flushOfflineQueue();
+    });
+
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
+      bool hasConnection = results.any((result) => result != ConnectivityResult.none);
+      if (hasConnection) {
+        debugPrint("📶 Réseau rétabli ! Lancement de la synchronisation du buffer...");
+        _flushOfflineQueue();
+      }
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initRobustGeolocation();
       _listenToAssignedMissions();
@@ -227,6 +248,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void dispose() {
     _positionStreamSubscription?.cancel();
     _missionSubscription?.cancel();
+    _connectivitySubscription?.cancel();
+    _watchdogTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -238,11 +261,72 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- GÉOLOCALISATION ROBUSTE & NATIVE --------------------------
+  // --------------------------- GESTION DU BUFFER PERSISTANT ---------------------------
+  Future<void> _loadOfflineQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? storedData = prefs.getString('offline_gps_queue');
+      if (storedData != null) {
+        final List<dynamic> decodedList = jsonDecode(storedData);
+        setState(() {
+          _offlineQueue = decodedList.map((item) => Map<String, dynamic>.from(item)).toList();
+        });
+        debugPrint('📂 Buffer restauré : ${_offlineQueue.length} points en attente.');
+      }
+    } catch (e) {
+      debugPrint('Erreur chargement buffer : $e');
+    }
+  }
+
+  Future<void> _saveOfflineQueueToDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String encodedData = jsonEncode(_offlineQueue);
+      await prefs.setString('offline_gps_queue', encodedData);
+    } catch (e) {
+      debugPrint('Erreur sauvegarde buffer : $e');
+    }
+  }
+
+  Future<void> _flushOfflineQueue() async {
+    if (_isSyncing || _offlineQueue.isEmpty) return;
+    _isSyncing = true;
+
+    try {
+      while (_offlineQueue.isNotEmpty) {
+        final item = _offlineQueue.first;
+        await _dbRef.child('units/${widget.unitId}').update(item);
+        _offlineQueue.removeAt(0);
+        await _saveOfflineQueueToDisk();
+      }
+      debugPrint('✅ Buffer entièrement synchronisé.');
+    } catch (e) {
+      debugPrint('Échec de la synchronisation du buffer : $e');
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  // --------------------------- GÉOLOCALISATION ROBUSTE & WATCHDOG --------------------------
+  void _resetWatchdog() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer(const Duration(seconds: 30), () {
+      debugPrint("⚠️ Watchdog : Aucune position reçue depuis 30s. Redémarrage du GPS...");
+      setState(() => _locationStatus = "Signal figé - Redémarrage GPS...");
+      _restartGeolocationStream();
+    });
+  }
+
+  Future<void> _restartGeolocationStream() async {
+    await _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
+    await _initRobustGeolocation();
+  }
+
   Future<void> _initRobustGeolocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      setState(() => _locationStatus = "Erreur : GPS désactivé dans Android");
+      setState(() => _locationStatus = "Erreur : GPS désactivé");
       _snack("Veuillez activer le GPS de votre appareil");
       _sendDataToFirebase();
       return;
@@ -259,14 +343,14 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
 
     if (permission == LocationPermission.deniedForever) {
-      setState(() => _locationStatus = "Erreur : Permission bloquée (Paramètres)");
+      setState(() => _locationStatus = "Erreur : Permission bloquée");
       _showSettingsPermissionDialog();
       return;
     }
 
-    setState(() => _locationStatus = "Recherche de position (Matériel natif)...");
+    setState(() => _locationStatus = "Recherche de position (Crosscall)...");
 
-    // 1. Récupération immédiate du cache
+    // 1. Cache initial
     try {
       Position? lastPosition = await Geolocator.getLastKnownPosition();
       if (lastPosition != null) {
@@ -279,12 +363,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       }
     } catch (_) {}
 
-    // 2. Fix immédiat forcé via le gestionnaire natif Android
+    // 2. Fix immédiat via le gestionnaire natif
     try {
       Position currentPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 8),
-        forceAndroidLocationManager: true, // Contourne les services Google récalcitrants
+        forceAndroidLocationManager: true,
       );
       setState(() {
         _currentLatitude = currentPos.latitude;
@@ -293,21 +377,32 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       });
       _sendDataToFirebase();
     } catch (e) {
-      debugPrint("Échec fix immédiat, bascule flux continu : $e");
+      debugPrint("Échec fix immédiat : $e");
     }
 
-    // 3. Flux continu de position
-    const LocationSettings locationSettings = LocationSettings(
+    // 3. Flux continu optimisé pour Crosscall (AndroidSettings + WakeLock)
+    final LocationSettings locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 1,
+      distanceFilter: 5, // Mis à jour tous les 5 mètres
+      intervalDuration: const Duration(seconds: 5),
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationTitle: "Rezo+ en service",
+        notificationText: "Le suivi GPS de la patrouille est actif.",
+        enableWakeLock: true,
+        wakeLockTimeOut: 3600000,
+      ),
+      forceLocationManager: true,
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
       (Position position) {
+        _resetWatchdog(); // Réarmement du watchdog
         setState(() {
           _currentLatitude = position.latitude;
           _currentLongitude = position.longitude;
-          _locationStatus = "GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+          _locationStatus = _offlineQueue.isNotEmpty
+              ? "Hors-ligne (Buffer : ${_offlineQueue.length})"
+              : "GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
         });
         _sendDataToFirebase();
       },
@@ -316,6 +411,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         setState(() => _locationStatus = "Perte de signal GPS");
       },
     );
+
+    _resetWatchdog();
   }
 
   void _showSettingsPermissionDialog() {
@@ -326,7 +423,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         title: const Text('Autorisation GPS requise'),
         content: const Text(
           'Les permissions de géolocalisation ont été refusées de manière permanente. '
-          'Veuillez autoriser la localisation dans les paramètres de l\'application.',
+          'Veuillez autoriser la localisation dans les paramètres.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
@@ -347,7 +444,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     _missionSubscription = _dbRef.child('units/${widget.unitId}').onValue.listen((event) {
       if (event.snapshot.value != null && event.snapshot.value is Map) {
         final data = Map<dynamic, dynamic>.from(event.snapshot.value as Map);
-        
         setState(() {
           if (data['active_mission'] != null && data['active_mission'] is Map) {
             _activeMission = Map<dynamic, dynamic>.from(data['active_mission']);
@@ -367,23 +463,32 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   }
 
   Future<void> _sendDataToFirebase() async {
+    final payload = {
+      'latitude': _currentLatitude,
+      'longitude': _currentLongitude,
+      'status': _currentStatusMap['code'],
+      'statusLabel': _currentStatusMap['label']?.replaceAll('\n', ' '),
+      'statusColor': _currentStatusMap['hex'],
+      'equipment': _equipment,
+      'sos': _currentStatusMap['code'] == 'SOS_ACTIF',
+      'timestamp': ServerValue.timestamp,
+    };
+
     try {
-      await _dbRef.child('units/${widget.unitId}').update({
-        'latitude': _currentLatitude,
-        'longitude': _currentLongitude,
-        'status': _currentStatusMap['code'],
-        'statusLabel': _currentStatusMap['label']?.replaceAll('\n', ' '),
-        'statusColor': _currentStatusMap['hex'],
-        'equipment': _equipment,
-        'sos': _currentStatusMap['code'] == 'SOS_ACTIF',
-        'timestamp': ServerValue.timestamp,
-      });
+      await _dbRef.child('units/${widget.unitId}').update(payload);
+      if (_offlineQueue.isNotEmpty) {
+        _flushOfflineQueue();
+      }
     } catch (e) {
-      debugPrint('Erreur Firebase : $e');
+      debugPrint('⚠️ Réseau absent - Ajout au buffer persistant : $e');
+      _offlineQueue.add(payload);
+      await _saveOfflineQueueToDisk();
+      setState(() {
+        _locationStatus = "Hors-ligne (Buffer : ${_offlineQueue.length})";
+      });
     }
   }
 
-  // Changement de statut avec forçage de position GPS immédiat
   Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() {
       _currentStatusMap = statusMap;
@@ -437,6 +542,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     if (ok == true) {
       _positionStreamSubscription?.cancel();
       _missionSubscription?.cancel();
+      _connectivitySubscription?.cancel();
+      _watchdogTimer?.cancel();
       try {
         await _dbRef.child('units/${widget.unitId}').remove();
       } catch (_) {}
