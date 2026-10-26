@@ -184,20 +184,21 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   double _currentLatitude = 48.755578; // Valeur par défaut (Fresnes)
   double _currentLongitude = 2.321367;
-  String _locationStatus = "Initialisation GPS...";
+  String _locationStatus = "Recherche de position...";
 
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<DatabaseEvent>? _missionSubscription;
 
   Map<dynamic, dynamic>? _activeMission;
 
+  // Libellés sur deux lignes pour les statuts longs
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
     {'label': 'Contrôle PR', 'code': 'CONTROLE_PR', 'hex': '#009688'},
     {'label': 'Transport', 'code': 'TRANSPORT_ESCORTE', 'hex': '#00a8ff'},
     {'label': 'Escale', 'code': 'ESCALE_TECHNIQUE', 'hex': '#e91e63'},
-    {'label': 'Retour au poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
+    {'label': 'Retour\nau poste', 'code': 'RETOUR_POSTE', 'hex': '#9c27b0'},
     {'label': 'Indisponible', 'code': 'INDISPONIBLE', 'hex': '#777777'},
     {'label': 'SOS ACTIF', 'code': 'SOS_ACTIF', 'hex': '#ff2222'},
   ];
@@ -216,7 +217,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     WidgetsBinding.instance.addObserver(this);
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAndRequestPermissionAndStartGPS();
+      _initRobustGeolocation();
       _listenToAssignedMissions();
     });
   }
@@ -236,25 +237,21 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- GÉOLOCALISATION & PERMISSIONS --------------------------
-  Future<void> _checkAndRequestPermissionAndStartGPS() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  // --------------------------- GÉOLOCALISATION HYBRIDE & ROBUSTE --------------------------
+  Future<void> _initRobustGeolocation() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      setState(() => _locationStatus = "GPS désactivé dans les réglages Android");
+      setState(() => _locationStatus = "GPS désactivé dans les réglages");
       _snack("Veuillez activer le GPS de votre appareil");
       _sendDataToFirebase();
       return;
     }
 
-    permission = await Geolocator.checkPermission();
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         setState(() => _locationStatus = "Permission GPS refusée");
-        _snack("L'accès à la position est nécessaire pour la patrouille");
         _sendDataToFirebase();
         return;
       }
@@ -266,11 +263,41 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       return;
     }
 
-    setState(() => _locationStatus = "Acquisition du signal GPS...");
+    setState(() => _locationStatus = "Recherche de position (GPS / Réseau)...");
 
+    // 1. Tenter d'obtenir immédiatement la dernière position connue (très rapide)
+    try {
+      Position? lastPosition = await Geolocator.getLastKnownPosition();
+      if (lastPosition != null) {
+        setState(() {
+          _currentLatitude = lastPosition.latitude;
+          _currentLongitude = lastPosition.longitude;
+          _locationStatus = "Position OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})";
+        });
+        _sendDataToFirebase();
+      }
+    } catch (_) {}
+
+    // 2. Forcer une acquisition immédiate de la position courante
+    try {
+      Position currentPos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+      setState(() {
+        _currentLatitude = currentPos.latitude;
+        _currentLongitude = currentPos.longitude;
+        _locationStatus = "GPS Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})";
+      });
+      _sendDataToFirebase();
+    } catch (e) {
+      debugPrint("Délai GPS dépassé, utilisation du flux continu : $e");
+    }
+
+    // 3. Écoute continue du flux (avec distanceFilter abaissé à 1 mètre pour réagir plus vite)
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 2,
+      distanceFilter: 1, 
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
@@ -287,18 +314,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         setState(() => _locationStatus = "Erreur de signal GPS");
       },
     );
-
-    try {
-      Position initialPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      setState(() {
-        _currentLatitude = initialPosition.latitude;
-        _currentLongitude = initialPosition.longitude;
-        _locationStatus = "GPS Actif (${initialPosition.latitude.toStringAsFixed(4)}, ${initialPosition.longitude.toStringAsFixed(4)})";
-      });
-      _sendDataToFirebase();
-    } catch (_) {}
   }
 
   void _showSettingsPermissionDialog() {
@@ -309,14 +324,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         title: const Text('Autorisation GPS requise'),
         content: const Text(
           'Les permissions de géolocalisation ont été refusées de manière permanente. '
-          'Pour que le Poste de Commandement (CSU) puisse suivre la patrouille en temps réel, '
-          'veuillez autoriser la localisation dans les paramètres de l\'application.',
+          'Veuillez autoriser la localisation dans les paramètres de l\'application.',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annuler'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
             onPressed: () {
@@ -373,7 +384,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() => _currentStatusMap = statusMap);
     await _sendDataToFirebase();
-    _snack(statusMap['code'] == 'SOS_ACTIF' ? 'ALERTE SOS DÉCLENCHÉE !' : 'Statut : ${statusMap['label']}');
+    _snack(statusMap['code'] == 'SOS_ACTIF' ? 'ALERTE SOS DÉCLENCHÉE !' : 'Statut : ${statusMap['label'].replaceAll('\n', ' ')}');
   }
 
   Future<void> _endMission() async {
@@ -486,7 +497,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                 children: [
                   const Text('STATUT OPÉRATIONNEL ACTUEL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
                   const SizedBox(height: 4),
-                  Text(_currentStatusMap['label']!.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(_currentStatusMap['label']!.replaceAll('\n', ' ').toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 4),
                   Text(_locationStatus, style: const TextStyle(fontSize: 11, color: Colors.white60), textAlign: TextAlign.center),
                 ],
@@ -527,11 +538,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
             const Text('Modifier le statut :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
+            
+            // Grille des statuts avec support multi-lignes (maxLines: 2)
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 2.8,
+              childAspectRatio: 2.6,
               mainAxisSpacing: 8,
               crossAxisSpacing: 8,
               children: _statusList.where((s) => s['code'] != 'SOS_ACTIF').map((statusMap) {
@@ -548,8 +561,14 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                   onPressed: () => _changeStatus(statusMap),
                   child: Text(
                     statusMap['label']!,
-                    style: TextStyle(color: Colors.white, fontWeight: isActive ? FontWeight.w900 : FontWeight.bold, fontSize: 13),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: isActive ? FontWeight.w900 : FontWeight.bold,
+                      fontSize: 13,
+                    ),
                     textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 );
               }).toList(),
