@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -8,9 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ---------------------------------------------------------------------------
-// DÉMARRAGE
-// ---------------------------------------------------------------------------
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const RezoPlusApp());
@@ -86,6 +84,7 @@ class _BootScreenState extends State<BootScreen> {
             ),
           );
         }
+
         if (snap.hasError) {
           return Scaffold(
             appBar: AppBar(title: const Text('Rezo+ : erreur de démarrage')),
@@ -117,9 +116,6 @@ class _BootScreenState extends State<BootScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// ÉCRAN DE CONNEXION
-// ---------------------------------------------------------------------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -197,9 +193,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// ÉCRAN PRINCIPAL DE PATROUILLE
-// ---------------------------------------------------------------------------
 class PatrouilleHomePage extends StatefulWidget {
   final String unitId;
   const PatrouilleHomePage({super.key, required this.unitId});
@@ -274,9 +267,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
 
     _connectivitySubscription =
         Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      bool hasConnection = results.any((result) => result != ConnectivityResult.none);
+      final bool hasConnection =
+          results.any((result) => result != ConnectivityResult.none);
+
       if (hasConnection) {
-        debugPrint("📶 Réseau rétabli ! Synchronisation du buffer...");
+        debugPrint('📶 Réseau rétabli ! Synchronisation du buffer...');
         _flushOfflineQueue();
       }
     });
@@ -305,9 +300,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // GESTION DU BUFFER PERSISTANT
-  // ---------------------------------------------------------------------------
   Future<void> _loadOfflineQueue() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -355,9 +347,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // GÉOLOCALISATION & PERMISSIONS
-  // ---------------------------------------------------------------------------
   Future<void> _checkAndRequestPermissionAndStartGPS() async {
     final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -393,7 +382,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
 
     if (permission == LocationPermission.whileInUse) {
       setState(() {
-        _locationStatus = 'Permission GPS en premier plan uniquement. Activez "Toujours".';
+        _locationStatus =
+            'Permission GPS en premier plan uniquement. Activez "Toujours".';
         _permissionDenied = true;
       });
       _showBackgroundPermissionDialog();
@@ -402,7 +392,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
 
     if (permission != LocationPermission.always) {
       setState(() {
-        _locationStatus = 'Autorisation GPS non conforme. Permission "Toujours" requise.';
+        _locationStatus =
+            'Autorisation GPS non conforme. Permission "Toujours" requise.';
         _permissionDenied = true;
       });
       _showBackgroundPermissionDialog();
@@ -421,7 +412,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
   void _resetWatchdog() {
     _watchdogTimer?.cancel();
     _watchdogTimer = Timer(const Duration(seconds: 30), () {
-      debugPrint('⚠️ Watchdog : Aucune position reçue depuis 30s. Redémarrage du GPS...');
+      debugPrint(
+          '⚠️ Watchdog : Aucune position reçue depuis 30s. Redémarrage du GPS...');
       setState(() => _locationStatus = 'Signal figé - Redémarrage GPS...');
       _restartGeolocationStream();
     });
@@ -434,7 +426,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
   }
 
   Future<void> _initRobustGeolocation() async {
-    // 1. Dernière position connue
     try {
       final Position? lastPosition = await Geolocator.getLastKnownPosition();
       if (lastPosition != null) {
@@ -449,7 +440,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
       }
     } catch (_) {}
 
-    // 2. Fix immédiat
     try {
       final Position currentPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -474,7 +464,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
       });
     }
 
-    // 3. Flux GPS
     final LocationSettings locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 5,
@@ -564,9 +553,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // GESTION DE LA MISSION CSU
-  // ---------------------------------------------------------------------------
   void _closeMissionPopupIfNeeded() {
     if (_missionPopupVisible && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
@@ -711,9 +697,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // DONNÉES / PAYLOAD / MAIN COURANTE
-  // ---------------------------------------------------------------------------
   Map<String, dynamic> _buildUnitPayload() {
     return {
       'latitude': _currentLatitude,
@@ -811,9 +794,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
       );
     }
 
-    _snack(statusMap['code'] == 'SOS_ACTIF'
-        ? 'ALERTE SOS DÉCLENCHÉE !'
-        : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}');
+    _snack(
+      statusMap['code'] == 'SOS_ACTIF'
+          ? 'ALERTE SOS DÉCLENCHÉE !'
+          : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}',
+    );
   }
 
   Future<void> _endMission() async {
@@ -914,9 +899,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // UI
-  // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final bool isSosActive = (_currentStatusMap['code'] == 'SOS_ACTIF');
@@ -974,6 +956,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
                 final targetStatus = isSosActive
                     ? _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE')
                     : _statusList.firstWhere((s) => s['code'] == 'SOS_ACTIF');
+
                 _changeStatus(targetStatus);
               },
               icon: const Icon(Icons.warning, size: 24, color: Colors.white),
@@ -1025,7 +1008,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
             ),
             const SizedBox(height: 10),
 
-            if (_activeMission != null || _missionStatus == 'EN_COURS' || _missionStatus == 'TERMINEE') ...[
+            if (_activeMission != null ||
+                _missionStatus == 'EN_COURS' ||
+                _missionStatus == 'TERMINEE') ...[
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -1169,6 +1154,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
+
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -1204,4 +1190,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
             ),
           ],
         ),
-      ),_
+      ),
+    );
+  }
+}
