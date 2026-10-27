@@ -188,13 +188,14 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   double _currentLongitude = 2.321367;
   String _locationStatus = "Vérification des permissions GPS...";
   bool _permissionDenied = false;
+  bool _hasAlwaysLocationPermission = false;
 
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<DatabaseEvent>? _missionSubscription;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  final Map<String, StreamSubscription<DatabaseEvent>> _fallbackMissionSubscriptions = {};
   Timer? _watchdogTimer;
 
-  // File d'attente persistante pour les trames GPS hors-ligne
   List<Map<String, dynamic>> _offlineQueue = [];
   bool _isSyncing = false;
 
@@ -202,7 +203,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   String _missionStatus = 'AUCUN';
   String _missionFeedback = '';
 
-  // Liste complète des statuts avec codes couleurs distincts
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
     {'label': 'En Intervention', 'code': 'EN_INTERVENTION', 'hex': '#ff8800'},
@@ -250,6 +250,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void dispose() {
     _positionStreamSubscription?.cancel();
     _missionSubscription?.cancel();
+    for (final sub in _fallbackMissionSubscriptions.values) {
+      sub.cancel();
+    }
+    _fallbackMissionSubscriptions.clear();
     _connectivitySubscription?.cancel();
     _watchdogTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -352,6 +356,17 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       return;
     }
 
+    if (permission != LocationPermission.always) {
+      setState(() {
+        _locationStatus = "Autorisation GPS non conforme. Permission 'Toujours' requise pour le suivi en arrière-plan.";
+        _permissionDenied = true;
+      });
+      _showBackgroundPermissionDialog();
+      return;
+    }
+
+    _hasAlwaysLocationPermission = true;
+
     setState(() {
       _permissionDenied = false;
       _locationStatus = "Acquisition du signal GPS...";
@@ -384,6 +399,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
           _currentLongitude = lastPosition.longitude;
           _locationStatus = "Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})";
         });
+        _writeGpsDebugSnapshot(lastPosition, reason: 'cache');
         _sendDataToFirebase();
       }
     } catch (_) {}
@@ -399,6 +415,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         _currentLongitude = currentPos.longitude;
         _locationStatus = "GPS Natif Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})";
       });
+      _writeGpsDebugSnapshot(currentPos, reason: 'immediate');
       _sendDataToFirebase();
     } catch (e) {
       debugPrint("Échec fix immédiat : $e");
@@ -426,6 +443,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
               ? "Hors-ligne (Buffer : ${_offlineQueue.length})"
               : "GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
         });
+        _writeGpsDebugSnapshot(position, reason: 'stream');
         _sendDataToFirebase();
       },
       onError: (e) {
@@ -435,6 +453,23 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     );
 
     _resetWatchdog();
+  }
+
+  Future<void> _writeGpsDebugSnapshot(Position position, {required String reason}) async {
+    try {
+      await _dbRef.child('debug_gps/${widget.unitId}').push().set({
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'accuracy': position.accuracy,
+        'speed': position.speed,
+        'heading': position.heading,
+        'timestamp': ServerValue.timestamp,
+        'reason': reason,
+        'status': _currentStatusMap['code'],
+      });
+    } catch (e) {
+      debugPrint('Erreur écriture debug GPS : $e');
+    }
   }
 
   void _showSettingsPermissionDialog() {
@@ -488,40 +523,63 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     );
   }
 
-  void _listenToAssignedMissions() {
-    _missionSubscription = _dbRef.child('units/${widget.unitId}').onValue.listen((event) {
-      if (event.snapshot.value == null || event.snapshot.value is! Map) {
-        setState(() {
-          _activeMission = null;
-          _missionStatus = 'AUCUN';
-          _missionFeedback = '';
-        });
-        return;
+  void _applyUnitSnapshot(DataSnapshot snapshot) {
+    if (snapshot.value == null || snapshot.value is! Map) {
+      setState(() {
+        _activeMission = null;
+        _missionStatus = 'AUCUN';
+        _missionFeedback = '';
+      });
+      return;
+    }
+
+    final data = Map<dynamic, dynamic>.from(snapshot.value as Map);
+    setState(() {
+      final rawMission = data['active_mission'];
+      if (rawMission != null && rawMission is Map) {
+        _activeMission = Map<dynamic, dynamic>.from(rawMission);
+      } else {
+        _activeMission = null;
       }
 
-      final data = Map<dynamic, dynamic>.from(event.snapshot.value as Map);
-      setState(() {
-        final rawMission = data['active_mission'];
-        if (rawMission != null && rawMission is Map) {
-          _activeMission = Map<dynamic, dynamic>.from(rawMission);
-        } else {
-          _activeMission = null;
-        }
+      final rawMissionStatus = data['mission_status'] ?? data['csu_status'] ?? data['status_mission'] ?? 'AUCUN';
+      _missionStatus = rawMissionStatus.toString();
 
-        final rawMissionStatus = data['mission_status'] ?? data['csu_status'] ?? data['status_mission'] ?? 'AUCUN';
-        _missionStatus = rawMissionStatus.toString();
+      final rawMissionFeedback = data['mission_feedback'] ?? data['csu_message'] ?? data['message_csu'] ?? '';
+      _missionFeedback = rawMissionFeedback.toString();
 
-        final rawMissionFeedback = data['mission_feedback'] ?? data['csu_message'] ?? data['message_csu'] ?? '';
-        _missionFeedback = rawMissionFeedback.toString();
+      final remoteStatus = data['status'];
+      if (remoteStatus != null) {
+        try {
+          _currentStatusMap = _statusList.firstWhere((s) => s['code'] == remoteStatus);
+        } catch (_) {}
+      }
+    });
+  }
 
-        final remoteStatus = data['status'];
-        if (remoteStatus != null) {
-          try {
-            _currentStatusMap = _statusList.firstWhere((s) => s['code'] == remoteStatus);
-          } catch (_) {}
+  void _listenToAssignedMissions() {
+    final primaryPath = _dbRef.child('units/${widget.unitId}');
+    final fallbackPaths = [
+      'location',
+      'gps',
+      'position',
+      'tracking',
+    ];
+
+    _missionSubscription?.cancel();
+    _missionSubscription = primaryPath.onValue.listen((event) {
+      _applyUnitSnapshot(event.snapshot);
+    });
+
+    for (final fallback in fallbackPaths) {
+      final path = _dbRef.child('units/${widget.unitId}/$fallback');
+      final sub = path.onValue.listen((event) {
+        if (event.snapshot.value != null) {
+          _applyUnitSnapshot(event.snapshot);
         }
       });
-    });
+      _fallbackMissionSubscriptions[fallback] = sub;
+    }
   }
 
   Future<void> _sendDataToFirebase() async {
@@ -538,6 +596,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
     try {
       await _dbRef.child('units/${widget.unitId}').update(payload);
+      await _dbRef.child('debug_gps/${widget.unitId}').push().set({
+        'latitude': _currentLatitude,
+        'longitude': _currentLongitude,
+        'status': _currentStatusMap['code'],
+        'timestamp': ServerValue.timestamp,
+        'source': 'main_app',
+      });
       if (_offlineQueue.isNotEmpty) {
         _flushOfflineQueue();
       }
@@ -606,6 +671,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     if (ok == true) {
       _positionStreamSubscription?.cancel();
       _missionSubscription?.cancel();
+      for (final sub in _fallbackMissionSubscriptions.values) {
+        sub.cancel();
+      }
+      _fallbackMissionSubscriptions.clear();
       _connectivitySubscription?.cancel();
       _watchdogTimer?.cancel();
       try {
