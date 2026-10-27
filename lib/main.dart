@@ -234,13 +234,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
       bool hasConnection = results.any((result) => result != ConnectivityResult.none);
       if (hasConnection) {
-        debugPrint("📶 Réseau rétabli ! Lancement de la synchronisation du buffer...");
+        debugPrint("📶 Réseau rétabli ! Synchronisation du buffer...");
         _flushOfflineQueue();
       }
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initRobustGeolocation();
+      _checkAndRequestPermissionAndStartGPS();
       _listenToAssignedMissions();
     });
   }
@@ -259,8 +259,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _sendDataToFirebase();
-      // Revérifie les permissions au retour au premier plan
-      _initRobustGeolocation();
+      _checkAndRequestPermissionAndStartGPS();
     }
   }
 
@@ -310,7 +309,47 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- GÉOLOCALISATION ROBUSTE & PERMISSIONS --------------------------
+  // --------------------------- GÉOLOCALISATION & PERMISSIONS --------------------------
+  Future<void> _checkAndRequestPermissionAndStartGPS() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _locationStatus = "GPS désactivé sur le terminal";
+        _permissionDenied = true;
+      });
+      _snack("Veuillez activer le GPS dans la barre d'état du Crosscall");
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          _locationStatus = "Permission GPS refusée par l'utilisateur";
+          _permissionDenied = true;
+        });
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      setState(() {
+        _locationStatus = "Permission bloquée définitivement";
+        _permissionDenied = true;
+      });
+      _showSettingsPermissionDialog();
+      return;
+    }
+
+    setState(() {
+      _permissionDenied = false;
+      _locationStatus = "Acquisition du signal GPS...";
+    });
+
+    _initRobustGeolocation();
+  }
+
   void _resetWatchdog() {
     _watchdogTimer?.cancel();
     _watchdogTimer = Timer(const Duration(seconds: 30), () {
@@ -327,42 +366,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   }
 
   Future<void> _initRobustGeolocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      setState(() {
-        _locationStatus = "Erreur : GPS désactivé sur le terminal";
-        _permissionDenied = true;
-      });
-      _snack("Veuillez activer le GPS dans les paramètres du téléphone");
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        setState(() {
-          _locationStatus = "Permission GPS refusée";
-          _permissionDenied = true;
-        });
-        return;
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      setState(() {
-        _locationStatus = "Permission GPS bloquée définitivement";
-        _permissionDenied = true;
-      });
-      _showSettingsPermissionDialog();
-      return;
-    }
-
-    setState(() {
-      _permissionDenied = false;
-      _locationStatus = "Recherche de position (Crosscall)...";
-    });
-
     // 1. Cache initial
     try {
       Position? lastPosition = await Geolocator.getLastKnownPosition();
@@ -601,7 +604,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Bouton d'activation d'urgence des permissions si bloqué
+            // Bouton de secours si les permissions sont bloquées
             if (_permissionDenied) ...[
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
@@ -613,13 +616,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                   if (p == LocationPermission.deniedForever) {
                     Geolocator.openAppSettings();
                   } else {
-                    _initRobustGeolocation();
+                    _checkAndRequestPermissionAndStartGPS();
                   }
                 },
                 icon: const Icon(Icons.location_on, color: Colors.white),
                 label: const Text(
                   'AUTORISER LA GÉOLOCALISATION MAINTENANT',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
               ),
               const SizedBox(height: 10),
