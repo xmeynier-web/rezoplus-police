@@ -184,11 +184,12 @@ class PatrouilleHomePage extends StatefulWidget {
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBindingObserver {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  double _currentLatitude = 48.755578;
-  double _currentLongitude = 2.321367;
+  double? _currentLatitude;
+  double? _currentLongitude;
   String _locationStatus = "Vérification des permissions GPS...";
   bool _permissionDenied = false;
   bool _hasAlwaysLocationPermission = false;
+  bool _gpsReady = false;
 
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<DatabaseEvent>? _missionSubscription;
@@ -263,8 +264,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _sendDataToFirebase();
       _checkAndRequestPermissionAndStartGPS();
+      _sendDataToFirebase();
     }
   }
 
@@ -316,13 +317,13 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   // --------------------------- GÉOLOCALISATION & PERMISSIONS --------------------------
   Future<void> _checkAndRequestPermissionAndStartGPS() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() {
-        _locationStatus = "GPS désactivé sur le terminal";
+        _locationStatus = 'GPS désactivé sur le terminal';
         _permissionDenied = true;
       });
-      _snack("Veuillez activer le GPS dans la barre d'état du Crosscall");
+      _snack('Veuillez activer le GPS dans la barre d\'état du Crosscall');
       return;
     }
 
@@ -331,7 +332,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         setState(() {
-          _locationStatus = "Permission GPS refusée par l'utilisateur";
+          _locationStatus = 'Permission GPS refusée par l\'utilisateur';
           _permissionDenied = true;
         });
         return;
@@ -340,7 +341,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
     if (permission == LocationPermission.deniedForever) {
       setState(() {
-        _locationStatus = "Permission bloquée définitivement";
+        _locationStatus = 'Permission bloquée définitivement';
         _permissionDenied = true;
       });
       _showSettingsPermissionDialog();
@@ -349,7 +350,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
     if (permission == LocationPermission.whileInUse) {
       setState(() {
-        _locationStatus = "Autorisation GPS en premier plan uniquement. Activez 'Toujours' dans les paramètres.";
+        _locationStatus = 'Permission GPS en premier plan uniquement. Activez "Toujours".';
         _permissionDenied = true;
       });
       _showBackgroundPermissionDialog();
@@ -358,7 +359,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
     if (permission != LocationPermission.always) {
       setState(() {
-        _locationStatus = "Autorisation GPS non conforme. Permission 'Toujours' requise pour le suivi en arrière-plan.";
+        _locationStatus = 'Autorisation GPS non conforme. Permission "Toujours" requise.';
         _permissionDenied = true;
       });
       _showBackgroundPermissionDialog();
@@ -366,20 +367,20 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
 
     _hasAlwaysLocationPermission = true;
-
+    _gpsReady = false;
     setState(() {
       _permissionDenied = false;
-      _locationStatus = "Acquisition du signal GPS...";
+      _locationStatus = 'Acquisition du signal GPS...';
     });
 
-    _initRobustGeolocation();
+    await _initRobustGeolocation();
   }
 
   void _resetWatchdog() {
     _watchdogTimer?.cancel();
     _watchdogTimer = Timer(const Duration(seconds: 30), () {
-      debugPrint("⚠️ Watchdog : Aucune position reçue depuis 30s. Redémarrage du GPS...");
-      setState(() => _locationStatus = "Signal figé - Redémarrage GPS...");
+      debugPrint('⚠️ Watchdog : Aucune position reçue depuis 30s. Redémarrage du GPS...');
+      setState(() => _locationStatus = 'Signal figé - Redémarrage GPS...');
       _restartGeolocationStream();
     });
   }
@@ -392,33 +393,41 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   Future<void> _initRobustGeolocation() async {
     try {
-      Position? lastPosition = await Geolocator.getLastKnownPosition();
+      final Position? lastPosition = await Geolocator.getLastKnownPosition();
       if (lastPosition != null) {
+        _currentLatitude = lastPosition.latitude;
+        _currentLongitude = lastPosition.longitude;
+        _gpsReady = true;
         setState(() {
-          _currentLatitude = lastPosition.latitude;
-          _currentLongitude = lastPosition.longitude;
-          _locationStatus = "Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})";
+          _locationStatus = 'Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})';
         });
         _writeGpsDebugSnapshot(lastPosition, reason: 'cache');
-        _sendDataToFirebase();
+        await _sendDataToFirebase();
       }
     } catch (_) {}
 
     try {
-      Position currentPos = await Geolocator.getCurrentPosition(
+      final Position currentPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 8),
         forceAndroidLocationManager: true,
       );
+      _currentLatitude = currentPos.latitude;
+      _currentLongitude = currentPos.longitude;
+      _gpsReady = true;
       setState(() {
-        _currentLatitude = currentPos.latitude;
-        _currentLongitude = currentPos.longitude;
-        _locationStatus = "GPS Natif Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})";
+        _locationStatus = 'GPS Natif Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})';
       });
       _writeGpsDebugSnapshot(currentPos, reason: 'immediate');
-      _sendDataToFirebase();
+      await _sendDataToFirebase();
     } catch (e) {
-      debugPrint("Échec fix immédiat : $e");
+      debugPrint('Échec fix immédiat : $e');
+    }
+
+    if (_currentLatitude == null || _currentLongitude == null) {
+      setState(() {
+        _locationStatus = 'En attente d\'un signal GPS valide...';
+      });
     }
 
     final LocationSettings locationSettings = AndroidSettings(
@@ -426,8 +435,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       distanceFilter: 5,
       intervalDuration: const Duration(seconds: 5),
       foregroundNotificationConfig: const ForegroundNotificationConfig(
-        notificationTitle: "Rezo+ en service",
-        notificationText: "Le suivi GPS de la patrouille est actif.",
+        notificationTitle: 'Rezo+ en service',
+        notificationText: 'Le suivi GPS de la patrouille est actif.',
         enableWakeLock: true,
       ),
       forceLocationManager: true,
@@ -435,20 +444,24 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
       (Position position) {
+        _gpsReady = true;
+        _currentLatitude = position.latitude;
+        _currentLongitude = position.longitude;
+
         _resetWatchdog();
         setState(() {
-          _currentLatitude = position.latitude;
-          _currentLongitude = position.longitude;
           _locationStatus = _offlineQueue.isNotEmpty
-              ? "Hors-ligne (Buffer : ${_offlineQueue.length})"
-              : "GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})";
+              ? 'Hors-ligne (Buffer : ${_offlineQueue.length})'
+              : 'GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})';
         });
+
         _writeGpsDebugSnapshot(position, reason: 'stream');
         _sendDataToFirebase();
       },
       onError: (e) {
-        debugPrint("Erreur flux GPS : $e");
-        setState(() => _locationStatus = "Perte de signal GPS");
+        debugPrint('Erreur flux GPS : $e');
+        _gpsReady = false;
+        setState(() => _locationStatus = 'Perte de signal GPS');
       },
     );
 
@@ -559,12 +572,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   void _listenToAssignedMissions() {
     final primaryPath = _dbRef.child('units/${widget.unitId}');
-    final fallbackPaths = [
-      'location',
-      'gps',
-      'position',
-      'tracking',
-    ];
+    final fallbackPaths = <String>['location', 'gps', 'position', 'tracking'];
 
     _missionSubscription?.cancel();
     _missionSubscription = primaryPath.onValue.listen((event) {
@@ -583,6 +591,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   }
 
   Future<void> _sendDataToFirebase() async {
+    if (!_gpsReady || _currentLatitude == null || _currentLongitude == null) {
+      return;
+    }
+
     final payload = {
       'latitude': _currentLatitude,
       'longitude': _currentLongitude,
@@ -611,7 +623,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       _offlineQueue.add(payload);
       await _saveOfflineQueueToDisk();
       setState(() {
-        _locationStatus = "Hors-ligne (Buffer : ${_offlineQueue.length})";
+        _locationStatus = 'Hors-ligne (Buffer : ${_offlineQueue.length})';
       });
     }
   }
@@ -619,19 +631,20 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() {
       _currentStatusMap = statusMap;
-      _locationStatus = "Actualisation position (Statut)...";
+      _locationStatus = 'Actualisation position (Statut)...';
     });
 
     try {
-      Position forcedPos = await Geolocator.getCurrentPosition(
+      final Position forcedPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 4),
         forceAndroidLocationManager: true,
       );
+      _gpsReady = true;
+      _currentLatitude = forcedPos.latitude;
+      _currentLongitude = forcedPos.longitude;
       setState(() {
-        _currentLatitude = forcedPos.latitude;
-        _currentLongitude = forcedPos.longitude;
-        _locationStatus = "GPS Forcé (${forcedPos.latitude.toStringAsFixed(4)}, ${forcedPos.longitude.toStringAsFixed(4)})";
+        _locationStatus = 'GPS Forcé (${forcedPos.latitude.toStringAsFixed(4)}, ${forcedPos.longitude.toStringAsFixed(4)})';
       });
     } catch (_) {}
 
@@ -656,7 +669,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   }
 
   Future<void> _toggleService() async {
-    final ok = await showDialog<bool>(
+    final bool? ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Déconnexion'),
@@ -729,11 +742,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 onPressed: () async {
-                  LocationPermission p = await Geolocator.requestPermission();
+                  final LocationPermission p = await Geolocator.requestPermission();
                   if (p == LocationPermission.deniedForever) {
                     Geolocator.openAppSettings();
                   } else {
-                    _checkAndRequestPermissionAndStartGPS();
+                    await _checkAndRequestPermissionAndStartGPS();
                   }
                 },
                 icon: const Icon(Icons.location_on, color: Colors.white),
