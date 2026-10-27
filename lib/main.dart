@@ -8,9 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ---------------------------------------------------------------------------
-// DÉMARRAGE
-// ---------------------------------------------------------------------------
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const RezoPlusApp());
@@ -109,9 +106,6 @@ class _BootScreenState extends State<BootScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// ÉCRAN DE CONNEXION
-// ---------------------------------------------------------------------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -151,16 +145,25 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: _controller,
-              decoration: const InputDecoration(hintText: 'Ex: ALPHA, Patrouille-01...', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                hintText: 'Ex: ALPHA, Patrouille-01...',
+                border: OutlineInputBorder(),
+              ),
               onSubmitted: (_) => _startService(),
             ),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, padding: const EdgeInsets.symmetric(vertical: 16)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
                 onPressed: _startService,
-                child: const Text('Démarrer la prise de service', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                child: const Text(
+                  'Démarrer la prise de service',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
               ),
             ),
           ],
@@ -170,9 +173,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// ÉCRAN PRINCIPAL DE PATROUILLE
-// ---------------------------------------------------------------------------
 class PatrouilleHomePage extends StatefulWidget {
   final String unitId;
   const PatrouilleHomePage({super.key, required this.unitId});
@@ -188,7 +188,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   double? _currentLongitude;
   String _locationStatus = "Vérification des permissions GPS...";
   bool _permissionDenied = false;
-  bool _hasAlwaysLocationPermission = false;
   bool _gpsReady = false;
 
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -219,9 +218,18 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   late Map<String, String> _currentStatusMap = _statusList[0];
 
   final Map<String, bool> _equipment = {
-    'Stop-Stick': false, 'Bouclier': false, 'GAIL': false, 'LBD': false,
-    'PIE': false, 'BTD': false, 'PSA': false, 'Casque': false,
-    'Trousse PS': false, 'Ethylo': false, 'Kit Stup': false, 'DSA': false,
+    'Stop-Stick': false,
+    'Bouclier': false,
+    'GAIL': false,
+    'LBD': false,
+    'PIE': false,
+    'BTD': false,
+    'PSA': false,
+    'Casque': false,
+    'Trousse PS': false,
+    'Ethylo': false,
+    'Kit Stup': false,
+    'DSA': false,
   };
 
   @override
@@ -233,10 +241,10 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       _flushOfflineQueue();
     });
 
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      bool hasConnection = results.any((result) => result != ConnectivityResult.none);
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) {
+      final hasConnection = results.any((result) => result != ConnectivityResult.none);
       if (hasConnection) {
-        debugPrint("📶 Réseau rétabli ! Synchronisation du buffer...");
+        debugPrint('📶 Réseau rétabli ! Synchronisation du buffer...');
         _flushOfflineQueue();
       }
     });
@@ -269,7 +277,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- GESTION DU BUFFER PERSISTANT ---------------------------
   Future<void> _loadOfflineQueue() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -279,7 +286,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         setState(() {
           _offlineQueue = decodedList.map((item) => Map<String, dynamic>.from(item)).toList();
         });
-        debugPrint('📂 Buffer restauré : ${_offlineQueue.length} points en attente.');
       }
     } catch (e) {
       debugPrint('Erreur chargement buffer : $e');
@@ -298,6 +304,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   Future<void> _flushOfflineQueue() async {
     if (_isSyncing || _offlineQueue.isEmpty) return;
+
     _isSyncing = true;
 
     try {
@@ -315,7 +322,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
   }
 
-  // --------------------------- GÉOLOCALISATION & PERMISSIONS --------------------------
   Future<void> _checkAndRequestPermissionAndStartGPS() async {
     final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -328,6 +334,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
+
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
@@ -366,7 +373,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       return;
     }
 
-    _hasAlwaysLocationPermission = true;
     _gpsReady = false;
     setState(() {
       _permissionDenied = false;
@@ -379,7 +385,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void _resetWatchdog() {
     _watchdogTimer?.cancel();
     _watchdogTimer = Timer(const Duration(seconds: 30), () {
-      debugPrint('⚠️ Watchdog : Aucune position reçue depuis 30s. Redémarrage du GPS...');
+      debugPrint('⚠️ Watchdog : aucune position reçue depuis 30s, redémarrage GPS...');
       setState(() => _locationStatus = 'Signal figé - Redémarrage GPS...');
       _restartGeolocationStream();
     });
@@ -398,9 +404,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         _currentLatitude = lastPosition.latitude;
         _currentLongitude = lastPosition.longitude;
         _gpsReady = true;
+
         setState(() {
           _locationStatus = 'Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})';
         });
+
         _writeGpsDebugSnapshot(lastPosition, reason: 'cache');
         await _sendDataToFirebase();
       }
@@ -412,12 +420,15 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         timeLimit: const Duration(seconds: 8),
         forceAndroidLocationManager: true,
       );
+
       _currentLatitude = currentPos.latitude;
       _currentLongitude = currentPos.longitude;
       _gpsReady = true;
+
       setState(() {
         _locationStatus = 'GPS Natif Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})';
       });
+
       _writeGpsDebugSnapshot(currentPos, reason: 'immediate');
       await _sendDataToFirebase();
     } catch (e) {
@@ -536,7 +547,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     );
   }
 
-  void _applyUnitSnapshot(DataSnapshot snapshot) {
+  void _applyMissionSnapshot(DataSnapshot snapshot) {
     if (snapshot.value == null || snapshot.value is! Map) {
       setState(() {
         _activeMission = null;
@@ -547,6 +558,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     }
 
     final data = Map<dynamic, dynamic>.from(snapshot.value as Map);
+
     setState(() {
       final rawMission = data['active_mission'];
       if (rawMission != null && rawMission is Map) {
@@ -572,18 +584,18 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   void _listenToAssignedMissions() {
     final primaryPath = _dbRef.child('units/${widget.unitId}');
-    final fallbackPaths = <String>['location', 'gps', 'position', 'tracking'];
+    final fallbackPaths = ['location', 'gps', 'position', 'tracking'];
 
     _missionSubscription?.cancel();
     _missionSubscription = primaryPath.onValue.listen((event) {
-      _applyUnitSnapshot(event.snapshot);
+      _applyMissionSnapshot(event.snapshot);
     });
 
     for (final fallback in fallbackPaths) {
       final path = _dbRef.child('units/${widget.unitId}/$fallback');
       final sub = path.onValue.listen((event) {
         if (event.snapshot.value != null) {
-          _applyUnitSnapshot(event.snapshot);
+          _applyMissionSnapshot(event.snapshot);
         }
       });
       _fallbackMissionSubscriptions[fallback] = sub;
@@ -615,11 +627,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         'timestamp': ServerValue.timestamp,
         'source': 'main_app',
       });
+
       if (_offlineQueue.isNotEmpty) {
         _flushOfflineQueue();
       }
     } catch (e) {
-      debugPrint('⚠️ Réseau absent - Ajout au buffer persistant : $e');
+      debugPrint('⚠️ Réseau absent - ajout au buffer persistant : $e');
       _offlineQueue.add(payload);
       await _saveOfflineQueueToDisk();
       setState(() {
@@ -649,7 +662,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
     } catch (_) {}
 
     await _sendDataToFirebase();
-    _snack(statusMap['code'] == 'SOS_ACTIF' ? 'ALERTE SOS DÉCLENCHÉE !' : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}');
+    _snack(statusMap['code'] == 'SOS_ACTIF'
+        ? 'ALERTE SOS DÉCLENCHÉE !'
+        : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}');
   }
 
   Future<void> _endMission() async {
@@ -690,9 +705,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       _fallbackMissionSubscriptions.clear();
       _connectivitySubscription?.cancel();
       _watchdogTimer?.cancel();
+
       try {
         await _dbRef.child('units/${widget.unitId}').remove();
       } catch (_) {}
+
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
     }
@@ -700,21 +717,36 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   void _snack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Color _getStatusColor(String code) {
     switch (code) {
-      case 'EN_PATROUILLE': return Colors.green.shade700;
-      case 'EN_INTERVENTION': return Colors.orange.shade800;
-      case 'CONTROLE_PR': return Colors.amber.shade700;
-      case 'TRANSPORT_ESCORTE': return Colors.blue.shade700;
-      case 'ATTENTE_FOURRIERE': return Colors.teal.shade700;
-      case 'ESCALE_TECHNIQUE': return Colors.pink.shade700;
-      case 'RETOUR_POSTE': return Colors.purple.shade700;
-      case 'INDISPONIBLE': return Colors.grey.shade800;
-      case 'SOS_ACTIF': return Colors.red.shade900;
-      default: return Colors.grey.shade700;
+      case 'EN_PATROUILLE':
+        return Colors.green.shade700;
+      case 'EN_INTERVENTION':
+        return Colors.orange.shade800;
+      case 'CONTROLE_PR':
+        return Colors.amber.shade700;
+      case 'TRANSPORT_ESCORTE':
+        return Colors.blue.shade700;
+      case 'ATTENTE_FOURRIERE':
+        return Colors.teal.shade700;
+      case 'ESCALE_TECHNIQUE':
+        return Colors.pink.shade700;
+      case 'RETOUR_POSTE':
+        return Colors.purple.shade700;
+      case 'INDISPONIBLE':
+        return Colors.grey.shade800;
+      case 'SOS_ACTIF':
+        return Colors.red.shade900;
+      default:
+        return Colors.grey.shade700;
     }
   }
 
@@ -727,7 +759,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         title: Text('Unité : ${widget.unitId}'),
         backgroundColor: isSosActive ? Colors.red[900] : null,
         actions: [
-          IconButton(icon: const Icon(Icons.logout), onPressed: _toggleService, tooltip: 'Fin de service'),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _toggleService,
+            tooltip: 'Fin de service',
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -786,11 +822,21 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
               ),
               child: Column(
                 children: [
-                  const Text('STATUT OPÉRATIONNEL ACTUEL', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
+                  const Text(
+                    'STATUT OPÉRATIONNEL ACTUEL',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70),
+                  ),
                   const SizedBox(height: 4),
-                  Text(_currentStatusMap['label']!.replaceAll('\n', ' ').toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(
+                    _currentStatusMap['label']!.replaceAll('\n', ' ').toUpperCase(),
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
                   const SizedBox(height: 4),
-                  Text(_locationStatus, style: const TextStyle(fontSize: 11, color: Colors.white60), textAlign: TextAlign.center),
+                  Text(
+                    _locationStatus,
+                    style: const TextStyle(fontSize: 11, color: Colors.white60),
+                    textAlign: TextAlign.center,
+                  ),
                 ],
               ),
             ),
@@ -807,21 +853,39 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('MISSION CSU EN COURS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orangeAccent)),
+                    const Text(
+                      'MISSION CSU EN COURS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orangeAccent),
+                    ),
                     const SizedBox(height: 4),
                     if (_activeMission != null) ...[
-                      Text('Objet : ${_activeMission!['title'] ?? _activeMission!['titre'] ?? 'Intervention'}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                      Text('Lieu : ${_activeMission!['location'] ?? _activeMission!['adresse'] ?? 'Non précisé'}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text(
+                        'Objet : ${_activeMission!['title'] ?? _activeMission!['titre'] ?? 'Intervention'}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      Text(
+                        'Lieu : ${_activeMission!['location'] ?? _activeMission!['adresse'] ?? 'Non précisé'}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
                     ],
                     if (_missionStatus != 'AUCUN')
-                      Text('Statut CSU : $_missionStatus', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text(
+                        'Statut CSU : $_missionStatus',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
                     if (_missionFeedback.isNotEmpty)
-                      Text('Retour CSU : $_missionFeedback', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                      Text(
+                        'Retour CSU : $_missionFeedback',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
                       child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        ),
                         onPressed: _endMission,
                         icon: const Icon(Icons.check, size: 16),
                         label: const Text('Fin d\'intervention', style: TextStyle(fontSize: 12)),
@@ -869,6 +933,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                 );
               }).toList(),
             ),
+
             const Divider(height: 24),
 
             const Text('Contrôle du Matériel Embarqué :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
@@ -882,7 +947,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
               crossAxisSpacing: 6,
               children: _equipment.keys.map((item) {
                 return Container(
-                  decoration: BoxDecoration(border: Border.all(color: Colors.blue.withOpacity(0.4)), borderRadius: BorderRadius.circular(6), color: Colors.black12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.blue.withOpacity(0.4)),
+                    borderRadius: BorderRadius.circular(6),
+                    color: Colors.black12,
+                  ),
                   child: CheckboxListTile(
                     title: Text(item, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                     value: _equipment[item],
