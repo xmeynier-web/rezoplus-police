@@ -342,6 +342,18 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       return;
     }
 
+    // Android et iOS ne gèrent pas de la même manière l'autorisation 'always' vs 'whileInUse'.
+    // Pour un suivi en arrière-plan, il faut une autorisation "Toujours"; sinon le flux est
+    // interrompu quand l'application passe en arrière-plan.
+    if (permission == LocationPermission.whileInUse) {
+      setState(() {
+        _locationStatus = "Autorisation GPS en premier plan uniquement. Activez 'Toujours' dans les paramètres.";
+        _permissionDenied = true;
+      });
+      _showBackgroundPermissionDialog();
+      return;
+    }
+
     setState(() {
       _permissionDenied = false;
       _locationStatus = "Acquisition du signal GPS...";
@@ -442,6 +454,32 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Geolocator.openAppSettings();
+            },
+            child: const Text('Ouvrir les Paramètres', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBackgroundPermissionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Autorisation de suivi en arrière-plan'),
+        content: const Text(
+          'Pour que la géolocalisation reste active pendant le service, '
+          'l’application doit être autorisée en mode “Toujours”. '
+          'Ouvrez les paramètres et activez la localisation en arrière-plan.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Plus tard')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
             onPressed: () {
