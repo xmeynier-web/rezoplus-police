@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,16 +60,12 @@ class _BootScreenState extends State<BootScreen> {
     ).timeout(const Duration(seconds: 15));
   }
 
-  void _retry() {
-    setState(() => _init = _initFirebase());
-  }
-
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<void>(
       future: _init,
-      builder: (context, snap) {
-        if (snap.connectionState != ConnectionState.done) {
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             body: Center(
               child: Column(
@@ -85,23 +80,21 @@ class _BootScreenState extends State<BootScreen> {
           );
         }
 
-        if (snap.hasError) {
+        if (snapshot.hasError) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Rezo+ : erreur de démarrage')),
+            appBar: AppBar(title: const Text('Erreur de démarrage')),
             body: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text('Impossible d\'initialiser Firebase.'),
-                  const SizedBox(height: 12),
-                  SelectableText(
-                    '${snap.error}',
-                    style: const TextStyle(color: Colors.orangeAccent),
-                  ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: _retry,
+                    onPressed: () {
+                      setState(() {
+                        _init = _initFirebase();
+                      });
+                    },
                     child: const Text('Réessayer'),
                   ),
                 ],
@@ -130,9 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final unitId = _controller.text.trim();
     if (unitId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez entrer un indicatif radio valide.'),
-        ),
+        const SnackBar(content: Text('Veuillez entrer un indicatif radio valide.')),
       );
       return;
     }
@@ -225,7 +216,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
   Map<dynamic, dynamic>? _activeMission;
   String _missionStatus = 'AUCUN';
   String _missionFeedback = 'Aucune information';
-  bool _missionPopupVisible = false;
 
   final List<Map<String, String>> _statusList = [
     {'label': 'En Patrouille', 'code': 'EN_PATROUILLE', 'hex': '#22bb33'},
@@ -261,17 +251,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
-    _loadOfflineQueue().then((_) {
-      _flushOfflineQueue();
-    });
-
+    _loadOfflineQueue();
     _connectivitySubscription =
-        Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      final bool hasConnection =
-          results.any((result) => result != ConnectivityResult.none);
-
+        Connectivity().onConnectivityChanged.listen((results) {
+      final hasConnection = results.any((r) => r != ConnectivityResult.none);
       if (hasConnection) {
-        debugPrint('📶 Réseau rétabli ! Synchronisation du buffer...');
         _flushOfflineQueue();
       }
     });
@@ -303,14 +287,11 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
   Future<void> _loadOfflineQueue() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final String? storedData = prefs.getString('offline_gps_queue');
-      if (storedData != null) {
-        final List<dynamic> decodedList = jsonDecode(storedData);
-        setState(() {
-          _offlineQueue =
-              decodedList.map((item) => Map<String, dynamic>.from(item)).toList();
-        });
-        debugPrint('📂 Buffer restauré : ${_offlineQueue.length} points en attente.');
+      final stored = prefs.getString('offline_gps_queue');
+      if (stored != null) {
+        final decoded = jsonDecode(stored) as List<dynamic>;
+        _offlineQueue =
+            decoded.map((e) => Map<String, dynamic>.from(e)).toList();
       }
     } catch (e) {
       debugPrint('Erreur chargement buffer : $e');
@@ -320,8 +301,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
   Future<void> _saveOfflineQueueToDisk() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final String encodedData = jsonEncode(_offlineQueue);
-      await prefs.setString('offline_gps_queue', encodedData);
+      await prefs.setString('offline_gps_queue', jsonEncode(_offlineQueue));
     } catch (e) {
       debugPrint('Erreur sauvegarde buffer : $e');
     }
@@ -331,7 +311,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     if (_isSyncing || _offlineQueue.isEmpty) return;
 
     _isSyncing = true;
-
     try {
       while (_offlineQueue.isNotEmpty) {
         final item = _offlineQueue.first;
@@ -339,32 +318,29 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
         _offlineQueue.removeAt(0);
         await _saveOfflineQueueToDisk();
       }
-      debugPrint('✅ Buffer entièrement synchronisé.');
     } catch (e) {
-      debugPrint('Échec de la synchronisation du buffer : $e');
+      debugPrint('Échec sync buffer : $e');
     } finally {
       _isSyncing = false;
     }
   }
 
   Future<void> _checkAndRequestPermissionAndStartGPS() async {
-    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       setState(() {
         _locationStatus = 'GPS désactivé sur le terminal';
         _permissionDenied = true;
       });
-      _snack('Veuillez activer le GPS dans la barre d\'état du Crosscall');
       return;
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
-
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         setState(() {
-          _locationStatus = 'Permission GPS refusée par l\'utilisateur';
+          _locationStatus = 'Permission GPS refusée';
           _permissionDenied = true;
         });
         return;
@@ -373,30 +349,17 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
 
     if (permission == LocationPermission.deniedForever) {
       setState(() {
-        _locationStatus = 'Permission bloquée définitivement';
+        _locationStatus = 'Permission GPS bloquée';
         _permissionDenied = true;
       });
-      _showSettingsPermissionDialog();
-      return;
-    }
-
-    if (permission == LocationPermission.whileInUse) {
-      setState(() {
-        _locationStatus =
-            'Permission GPS en premier plan uniquement. Activez "Toujours".';
-        _permissionDenied = true;
-      });
-      _showBackgroundPermissionDialog();
       return;
     }
 
     if (permission != LocationPermission.always) {
       setState(() {
-        _locationStatus =
-            'Autorisation GPS non conforme. Permission "Toujours" requise.';
+        _locationStatus = 'Permission GPS non conforme';
         _permissionDenied = true;
       });
-      _showBackgroundPermissionDialog();
       return;
     }
 
@@ -409,62 +372,38 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     await _initRobustGeolocation();
   }
 
-  void _resetWatchdog() {
-    _watchdogTimer?.cancel();
-    _watchdogTimer = Timer(const Duration(seconds: 30), () {
-      debugPrint(
-          '⚠️ Watchdog : Aucune position reçue depuis 30s. Redémarrage du GPS...');
-      setState(() => _locationStatus = 'Signal figé - Redémarrage GPS...');
-      _restartGeolocationStream();
-    });
-  }
-
-  Future<void> _restartGeolocationStream() async {
-    await _positionStreamSubscription?.cancel();
-    _positionStreamSubscription = null;
-    await _initRobustGeolocation();
-  }
-
   Future<void> _initRobustGeolocation() async {
     try {
-      final Position? lastPosition = await Geolocator.getLastKnownPosition();
-      if (lastPosition != null) {
-        _currentLatitude = lastPosition.latitude;
-        _currentLongitude = lastPosition.longitude;
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        _currentLatitude = last.latitude;
+        _currentLongitude = last.longitude;
         _gpsReady = true;
         setState(() {
           _locationStatus =
-              'Cache OK (${lastPosition.latitude.toStringAsFixed(4)}, ${lastPosition.longitude.toStringAsFixed(4)})';
+              'Cache OK (${last.latitude.toStringAsFixed(4)}, ${last.longitude.toStringAsFixed(4)})';
         });
         await _sendDataToFirebase();
       }
     } catch (_) {}
 
     try {
-      final Position currentPos = await Geolocator.getCurrentPosition(
+      final current = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 8),
         forceAndroidLocationManager: true,
       );
-      _currentLatitude = currentPos.latitude;
-      _currentLongitude = currentPos.longitude;
+      _currentLatitude = current.latitude;
+      _currentLongitude = current.longitude;
       _gpsReady = true;
       setState(() {
         _locationStatus =
-            'GPS Natif Fixé (${currentPos.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)})';
+            'GPS Natif Fixé (${current.latitude.toStringAsFixed(4)}, ${current.longitude.toStringAsFixed(4)})';
       });
       await _sendDataToFirebase();
-    } catch (e) {
-      debugPrint('Échec fix immédiat : $e');
-    }
+    } catch (_) {}
 
-    if (_currentLatitude == null || _currentLongitude == null) {
-      setState(() {
-        _locationStatus = 'En attente d\'un signal GPS valide...';
-      });
-    }
-
-    final LocationSettings locationSettings = AndroidSettings(
+    final settings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 5,
       intervalDuration: const Duration(seconds: 5),
@@ -477,170 +416,24 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     );
 
     _positionStreamSubscription =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (Position position) {
+        Geolocator.getPositionStream(locationSettings: settings).listen(
+      (position) {
         _gpsReady = true;
         _currentLatitude = position.latitude;
         _currentLongitude = position.longitude;
 
-        _resetWatchdog();
         setState(() {
-          _locationStatus = _offlineQueue.isNotEmpty
-              ? 'Hors-ligne (Buffer : ${_offlineQueue.length})'
-              : 'GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})';
+          _locationStatus =
+              'GPS Actif (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})';
         });
 
         _sendDataToFirebase();
       },
-      onError: (e) {
-        debugPrint('Erreur flux GPS : $e');
+      onError: (_) {
         _gpsReady = false;
         setState(() => _locationStatus = 'Perte de signal GPS');
       },
     );
-
-    _resetWatchdog();
-  }
-
-  void _showSettingsPermissionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Autorisation GPS requise'),
-        content: const Text(
-          'Les permissions de géolocalisation ont été refusées. '
-          'Veuillez autoriser la localisation dans les paramètres de l\'application.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-            onPressed: () {
-              Navigator.pop(ctx);
-              Geolocator.openAppSettings();
-            },
-            child: const Text('Ouvrir les Paramètres', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showBackgroundPermissionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Autorisation de suivi en arrière-plan'),
-        content: const Text(
-          'Pour que la géolocalisation reste active pendant le service, '
-          'l’application doit être autorisée en mode “Toujours”. '
-          'Ouvrez les paramètres et activez la localisation en arrière-plan.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Plus tard')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-            onPressed: () {
-              Navigator.pop(ctx);
-              Geolocator.openAppSettings();
-            },
-            child: const Text('Ouvrir les Paramètres', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _closeMissionPopupIfNeeded() {
-    if (_missionPopupVisible && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    }
-    _missionPopupVisible = false;
-  }
-
-  void _showMissionPopupIfNeeded() {
-    if (_missionStatus == 'TERMINEE' || _activeMission == null) {
-      _closeMissionPopupIfNeeded();
-      return;
-    }
-
-    if (_missionPopupVisible) return;
-
-    _missionPopupVisible = true;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.brown.shade900,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'MISSION CSU EN COURS',
-          style: TextStyle(
-            color: Colors.orangeAccent,
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-          ),
-        ),
-        content: SizedBox(
-          width: 320,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Statut CSU : $_missionStatus',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _missionFeedback.isNotEmpty ? _missionFeedback : 'Mission CSU active.',
-                style: const TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Objet : ${_activeMission?['title'] ?? _activeMission?['titre'] ?? 'Intervention'}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Lieu : ${_activeMission?['location'] ?? _activeMission?['adresse'] ?? 'Non précisé'}',
-                style: const TextStyle(color: Colors.white70),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.shade700,
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              _missionPopupVisible = false;
-              _endMission();
-            },
-            icon: const Icon(Icons.check),
-            label: const Text(
-              'Fin d\'intervention',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    ).then((_) {
-      _missionPopupVisible = false;
-    });
   }
 
   void _listenToAssignedMissions() {
@@ -658,7 +451,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
           final remoteStatus = data['status'];
           if (remoteStatus != null) {
             try {
-              _currentStatusMap = _statusList.firstWhere((s) => s['code'] == remoteStatus);
+              _currentStatusMap =
+                  _statusList.firstWhere((s) => s['code'] == remoteStatus);
             } catch (_) {}
           }
 
@@ -678,21 +472,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
             _missionFeedback = 'Aucune information';
           }
         });
-
-        if (_missionStatus == 'TERMINEE' || _activeMission == null) {
-          _closeMissionPopupIfNeeded();
-        } else {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _showMissionPopupIfNeeded();
-          });
-        }
-      } else {
-        setState(() {
-          _activeMission = null;
-          _missionStatus = 'AUCUN';
-          _missionFeedback = 'Aucune information';
-        });
-        _closeMissionPopupIfNeeded();
       }
     });
   }
@@ -742,17 +521,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
       debugPrint('⚠️ Réseau absent - Ajout au buffer persistant : $e');
       _offlineQueue.add(payload);
       await _saveOfflineQueueToDisk();
-      setState(() {
-        _locationStatus = "Hors-ligne (Buffer : ${_offlineQueue.length})";
-      });
     }
   }
 
   Future<void> _changeStatus(Map<String, String> statusMap) async {
     setState(() {
       _currentStatusMap = statusMap;
-      _locationStatus = "Actualisation position (Statut)...";
-
       if (statusMap['code'] == 'SOS_ACTIF') {
         _missionStatus = 'SOS_ACTIF';
         _missionFeedback = 'Alerte SOS déclenchée';
@@ -766,18 +540,14 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
     });
 
     try {
-      final Position forcedPos = await Geolocator.getCurrentPosition(
+      final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 4),
         forceAndroidLocationManager: true,
       );
       _gpsReady = true;
-      _currentLatitude = forcedPos.latitude;
-      _currentLongitude = forcedPos.longitude;
-      setState(() {
-        _locationStatus =
-            "GPS Forcé (${forcedPos.latitude.toStringAsFixed(4)}, ${forcedPos.longitude.toStringAsFixed(4)})";
-      });
+      _currentLatitude = pos.latitude;
+      _currentLongitude = pos.longitude;
     } catch (_) {}
 
     await _sendDataToFirebase();
@@ -793,12 +563,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
         statusMap['hex'] ?? '#777777',
       );
     }
-
-    _snack(
-      statusMap['code'] == 'SOS_ACTIF'
-          ? 'ALERTE SOS DÉCLENCHÉE !'
-          : 'Statut : ${statusMap['label']?.replaceAll('\n', ' ') ?? ''}',
-    );
   }
 
   Future<void> _endMission() async {
@@ -809,7 +573,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
       _missionStatus = 'TERMINEE';
       _missionFeedback = 'Mission terminée';
       _activeMission = null;
-      _locationStatus = "Mission terminée - retour au statut En Patrouille";
     });
 
     try {
@@ -826,52 +589,9 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
         'FIN MISSION -> Unité ${widget.unitId} a clôturé l’intervention',
         '#22bb33',
       );
-
-      _snack('Intervention clôturée avec succès.');
-      _closeMissionPopupIfNeeded();
     } catch (e) {
       debugPrint('Erreur fin mission : $e');
     }
-
-    await _changeStatus(patrouilleStatus);
-  }
-
-  Future<void> _toggleService() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Déconnexion'),
-        content: const Text('Voulez-vous vraiment quitter le service ?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirmer')),
-        ],
-      ),
-    );
-
-    if (ok == true) {
-      _positionStreamSubscription?.cancel();
-      _missionSubscription?.cancel();
-      _connectivitySubscription?.cancel();
-      _watchdogTimer?.cancel();
-
-      try {
-        await _dbRef.child('units/${widget.unitId}').remove();
-      } catch (_) {}
-
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    }
-  }
-
-  void _snack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
-    );
   }
 
   Color _getStatusColor(String code) {
@@ -901,52 +621,18 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
 
   @override
   Widget build(BuildContext context) {
-    final bool isSosActive = (_currentStatusMap['code'] == 'SOS_ACTIF');
+    final isSosActive = _currentStatusMap['code'] == 'SOS_ACTIF';
 
     return Scaffold(
       appBar: AppBar(
         title: Text('Unité : ${widget.unitId}'),
         backgroundColor: isSosActive ? Colors.red[900] : null,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _toggleService,
-            tooltip: 'Fin de service',
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_permissionDenied) ...[
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.amber.shade800,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                onPressed: () async {
-                  final LocationPermission p = await Geolocator.requestPermission();
-                  if (p == LocationPermission.deniedForever) {
-                    Geolocator.openAppSettings();
-                  } else {
-                    _checkAndRequestPermissionAndStartGPS();
-                  }
-                },
-                icon: const Icon(Icons.location_on, color: Colors.white),
-                label: const Text(
-                  'AUTORISER LA GÉOLOCALISATION MAINTENANT',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
-
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: isSosActive ? Colors.orange[800] : Colors.red,
@@ -1007,102 +693,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage>
               ),
             ),
             const SizedBox(height: 10),
-
-            if (_activeMission != null ||
-                _missionStatus == 'EN_COURS' ||
-                _missionStatus == 'TERMINEE') ...[
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: _missionStatus == 'TERMINEE'
-                      ? Colors.brown.shade900.withOpacity(0.9)
-                      : Colors.orange.shade900.withOpacity(0.35),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orangeAccent),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'MISSION CSU EN COURS',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                        color: Colors.orangeAccent,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Statut CSU : ${_missionStatus}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Retour CSU : ${_missionFeedback.isNotEmpty ? _missionFeedback : 'Mission CSU active.'}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
-                    ),
-                    if (_activeMission != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Objet : ${_activeMission!['title'] ?? _activeMission!['titre'] ?? 'Intervention'}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      Text(
-                        'Lieu : ${_activeMission!['location'] ?? _activeMission!['adresse'] ?? 'Non précisé'}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    if (_missionStatus != 'TERMINEE') ...[
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.shade700,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          ),
-                          onPressed: _endMission,
-                          icon: const Icon(Icons.check, size: 16),
-                          label: const Text(
-                            'Fin d\'intervention',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ),
-                    ] else ...[
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.grey.shade700,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _missionStatus = 'AUCUN';
-                              _missionFeedback = 'Aucune information';
-                              _activeMission = null;
-                            });
-                            _closeMissionPopupIfNeeded();
-                            _sendDataToFirebase();
-                          },
-                          icon: const Icon(Icons.close, size: 16),
-                          label: const Text('Fermer', style: TextStyle(fontSize: 12)),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
 
             const Text(
               'Modifier le statut :',
