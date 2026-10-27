@@ -184,7 +184,7 @@ class PatrouilleHomePage extends StatefulWidget {
 class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBindingObserver {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
 
-  double _currentLatitude = 48.755578; 
+  double _currentLatitude = 48.755578;
   double _currentLongitude = 2.321367;
   String _locationStatus = "Vérification des permissions GPS...";
   bool _permissionDenied = false;
@@ -199,6 +199,8 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   bool _isSyncing = false;
 
   Map<dynamic, dynamic>? _activeMission;
+  String _missionStatus = 'AUCUN';
+  String _missionFeedback = '';
 
   // Liste complète des statuts avec codes couleurs distincts
   final List<Map<String, String>> _statusList = [
@@ -225,8 +227,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    
-    // 1. Chargement de la file d'attente persistante et écoute réseau
+
     _loadOfflineQueue().then((_) {
       _flushOfflineQueue();
     });
@@ -342,9 +343,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       return;
     }
 
-    // Android et iOS ne gèrent pas de la même manière l'autorisation 'always' vs 'whileInUse'.
-    // Pour un suivi en arrière-plan, il faut une autorisation "Toujours"; sinon le flux est
-    // interrompu quand l'application passe en arrière-plan.
     if (permission == LocationPermission.whileInUse) {
       setState(() {
         _locationStatus = "Autorisation GPS en premier plan uniquement. Activez 'Toujours' dans les paramètres.";
@@ -378,7 +376,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   }
 
   Future<void> _initRobustGeolocation() async {
-    // 1. Cache initial
     try {
       Position? lastPosition = await Geolocator.getLastKnownPosition();
       if (lastPosition != null) {
@@ -391,7 +388,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       }
     } catch (_) {}
 
-    // 2. Fix immédiat via le gestionnaire natif
     try {
       Position currentPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -408,7 +404,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
       debugPrint("Échec fix immédiat : $e");
     }
 
-    // 3. Flux continu optimisé pour Crosscall
     final LocationSettings locationSettings = AndroidSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 5,
@@ -495,23 +490,37 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
   void _listenToAssignedMissions() {
     _missionSubscription = _dbRef.child('units/${widget.unitId}').onValue.listen((event) {
-      if (event.snapshot.value != null && event.snapshot.value is Map) {
-        final data = Map<dynamic, dynamic>.from(event.snapshot.value as Map);
+      if (event.snapshot.value == null || event.snapshot.value is! Map) {
         setState(() {
-          if (data['active_mission'] != null && data['active_mission'] is Map) {
-            _activeMission = Map<dynamic, dynamic>.from(data['active_mission']);
-          } else {
-            _activeMission = null;
-          }
-
-          final remoteStatus = data['status'];
-          if (remoteStatus != null) {
-            try {
-              _currentStatusMap = _statusList.firstWhere((s) => s['code'] == remoteStatus);
-            } catch (_) {}
-          }
+          _activeMission = null;
+          _missionStatus = 'AUCUN';
+          _missionFeedback = '';
         });
+        return;
       }
+
+      final data = Map<dynamic, dynamic>.from(event.snapshot.value as Map);
+      setState(() {
+        final rawMission = data['active_mission'];
+        if (rawMission != null && rawMission is Map) {
+          _activeMission = Map<dynamic, dynamic>.from(rawMission);
+        } else {
+          _activeMission = null;
+        }
+
+        final rawMissionStatus = data['mission_status'] ?? data['csu_status'] ?? data['status_mission'] ?? 'AUCUN';
+        _missionStatus = rawMissionStatus.toString();
+
+        final rawMissionFeedback = data['mission_feedback'] ?? data['csu_message'] ?? data['message_csu'] ?? '';
+        _missionFeedback = rawMissionFeedback.toString();
+
+        final remoteStatus = data['status'];
+        if (remoteStatus != null) {
+          try {
+            _currentStatusMap = _statusList.firstWhere((s) => s['code'] == remoteStatus);
+          } catch (_) {}
+        }
+      });
     });
   }
 
@@ -568,10 +577,12 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
   Future<void> _endMission() async {
     final patrouilleStatus = _statusList.firstWhere((s) => s['code'] == 'EN_PATROUILLE');
     await _changeStatus(patrouilleStatus);
-    
+
     try {
       await _dbRef.child('units/${widget.unitId}').update({
         'active_mission': null,
+        'mission_status': 'TERMINEE',
+        'mission_feedback': 'Mission CSU terminée par l\'unité',
       });
       _snack('Intervention clôturée avec succès.');
     } catch (e) {
@@ -642,7 +653,6 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Bouton de secours si les permissions sont bloquées
             if (_permissionDenied) ...[
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
@@ -704,7 +714,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
             ),
             const SizedBox(height: 10),
 
-            if (_activeMission != null) ...[
+            if (_activeMission != null || _missionStatus != 'AUCUN') ...[
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -717,8 +727,14 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
                   children: [
                     const Text('MISSION CSU EN COURS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.orangeAccent)),
                     const SizedBox(height: 4),
-                    Text('Objet : ${_activeMission!['title'] ?? _activeMission!['titre'] ?? 'Intervention'}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                    Text('Lieu : ${_activeMission!['location'] ?? _activeMission!['adresse'] ?? 'Non précisé'}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    if (_activeMission != null) ...[
+                      Text('Objet : ${_activeMission!['title'] ?? _activeMission!['titre'] ?? 'Intervention'}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text('Lieu : ${_activeMission!['location'] ?? _activeMission!['adresse'] ?? 'Non précisé'}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    ],
+                    if (_missionStatus != 'AUCUN')
+                      Text('Statut CSU : $_missionStatus', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    if (_missionFeedback.isNotEmpty)
+                      Text('Retour CSU : $_missionFeedback', style: const TextStyle(color: Colors.white70, fontSize: 12)),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
@@ -737,7 +753,7 @@ class _PatrouilleHomePageState extends State<PatrouilleHomePage> with WidgetsBin
 
             const Text('Modifier le statut :', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
-            
+
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
